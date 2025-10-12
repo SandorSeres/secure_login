@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Auth</title>
+
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'">
+
+  <style>
+    :root {
+      --neo:#00ff66; --neo-bright:#67ff9a; --border:#00ff99; --bg:#000;
+      --panel:rgba(0,255,100,.07); --scan:rgba(0,255,100,.06);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; display:flex; align-items:center; justify-content:center;
+      background: radial-gradient(1200px 600px at 50% 30%, #001a00, #000 55%);
+      color:#eafff4; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+      overflow:hidden;
+    }
+    body::after{
+      content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+      background: radial-gradient(1200px 600px at 50% 35%, transparent 40%, rgba(0,0,0,.45) 100%);
+    }
+    canvas#rain{position:fixed; inset:0; z-index:0; pointer-events:none}
+    .scan{position:fixed; inset:0; z-index:0;
+      background:repeating-linear-gradient(transparent 0 2px, rgba(0,255,100,.07) 2px 3px)}
+    .scan::before{
+      content:""; position:absolute; inset:0; mix-blend-mode:screen;
+      background:linear-gradient(180deg, transparent 0%, var(--scan) 50%, transparent 100%);
+      animation:sweep 6s linear infinite;
+    }
+    @keyframes sweep{from{transform:translateY(-100%)}to{transform:translateY(100%)}}
+    @media (prefers-reduced-motion: reduce){ .scan::before{display:none} }
+
+    .card{
+      position:relative; z-index:2; width:min(92vw, 420px);
+      padding:28px; border-radius:12px; border:1px solid rgba(0,255,100,.55);
+      background:var(--panel);
+      box-shadow:0 0 32px rgba(0,255,100,.25), 0 0 80px rgba(0,255,100,.10) inset;
+      backdrop-filter:saturate(120%) blur(2px);
+      animation:pop .6s ease both;
+    }
+    @keyframes pop{from{transform:translateY(-8px); opacity:0} to{transform:none; opacity:1}}
+
+    h1{margin:0 0 14px; font-size:24px; color:#c8ffe2; letter-spacing:.3px}
+    .sub{margin:6px 0 16px; font-size:12px; color:#aaffcc; opacity:.8}
+    form{display:grid; gap:14px}
+    label{font-size:12px; color:#aaffcc; opacity:.9}
+    input{
+      width:100%; padding:10px 12px; border-radius:8px; outline:none;
+      border:1px solid var(--border);
+      background:rgba(0,255,100,.09); color:#eafff4; font-size:15px;
+      transition:.2s border-color,.2s box-shadow,.2s background;
+    }
+    input::placeholder{color:#b7f5d4; opacity:.6}
+    input:focus{background:rgba(0,255,100,.16); box-shadow:0 0 0 3px rgba(0,255,100,.18)}
+    .btn{
+      appearance:none; border:0; border-radius:8px; padding:11px 12px;
+      background:var(--neo); color:#001102; font-weight:800; font-size:16px;
+      cursor:pointer; transition:transform .06s ease, filter .2s ease;
+    }
+    .btn:hover{filter:brightness(1.075)}
+    .btn:active{transform:translateY(1px)}
+    .sep{height:1px; background:linear-gradient(90deg, transparent, rgba(0,255,100,.55), transparent); margin:10px 0 6px}
+    .hint{font-size:12px; color:#aaffcc; opacity:.75; margin-top:6px}
+
+    .flash-msg {
+      background:rgba(255,0,0,0.1);
+      color:#ff6666;
+      padding:10px;
+      border-radius:6px;
+      margin-bottom:12px;
+      font-size:14px;
+      text-align:center;
+      opacity:1;
+      transition: opacity 0.8s ease-out;
+    }
+    .flash-hide {
+      opacity:0;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="rain" aria-hidden="true"></canvas>
+  <div class="scan" aria-hidden="true"></div>
+
+  <div class="card" role="region" aria-labelledby="hdr">
+    <h1 id="hdr">System Access</h1>
+    <p class="sub">Kérjük jelentkezz be.</p>
+
+    {% if message %}
+    <div id="flash" class="flash-msg">{{ message }}</div>
+    {% endif %}
+
+    <form method="post" action="/auth/login" autocomplete="on">
+      <div>
+        <label for="u">Felhasználónév</label>
+        <input id="u" name="username" type="text" inputmode="email"
+               autocomplete="username" placeholder="Név" required>
+      </div>
+      <div>
+        <label for="p">Jelszó</label>
+        <input id="p" name="password" type="password"
+               autocomplete="current-password" placeholder="••••••••" required>
+      </div>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}">
+      <button class="btn" type="submit">Belépés</button>
+    </form>
+
+    <div class="sep"></div>
+
+    <form method="post" action="/auth/register" autocomplete="off">
+      <div>
+        <label for="ru">Felhasználónév</label>
+        <input id="ru" name="username" type="text" autocomplete="off" required>
+      </div>
+      <div>
+        <label for="rp">Jelszó</label>
+        <input id="rp" name="password" type="password" autocomplete="new-password" required>
+      </div>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}">
+      <button class="btn" type="submit">Fiók létrehozása</button>
+
+      <!-- ✨ JELSZÓ KÖVETELMÉNYEK ✨ -->
+      <p class="hint" style="margin-bottom: 0;">
+        A jelszónak legalább 8 karakterből kell állnia, és tartalmaznia kell:
+      </p>
+      <ul class="hint" style="margin-top: 4px; padding-left: 20px;">
+        <li>legalább 1 kisbetűt (a–z)</li>
+        <li>legalább 1 nagybetűt (A–Z)</li>
+        <li>legalább 1 számot (0–9)</li>
+        <li>legalább 1 speciális karaktert (pl. !, @, #, $)</li>
+      </ul>
+  </div>
+
+<script>
+(() => {
+  // automatikus flash üzenet eltüntetés
+  const flash = document.getElementById('flash');
+  if (flash) {
+    setTimeout(() => flash.classList.add('flash-hide'), 3000);
+    setTimeout(() => flash.remove(), 4000);
+  }
+
+  // MATRIX ESŐ
+  function shuffleString(str) {
+    const arr = str.split('');
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr.join('');
+  }
+
+  const RAIN_SPEED = 0.5; // 🕒 <--- ezzel szabályozod a hullást és a karakterváltást
+  const cvs = document.getElementById('rain');
+  const ctx = cvs.getContext('2d');
+
+  const ASCII = '01ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const KATA  = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン';
+  const GLYPHS = shuffleString(ASCII + KATA);
+
+  const S = { dpr:1, fontSize:18, cols:0, col:[] };
+
+  function resize(){
+    S.dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    const w = window.innerWidth, h = window.innerHeight;
+
+    cvs.width  = Math.floor(w * S.dpr);
+    cvs.height = Math.floor(h * S.dpr);
+    cvs.style.width  = w + 'px';
+    cvs.style.height = h + 'px';
+
+    ctx.setTransform(S.dpr,0,0,S.dpr,0,0);
+    ctx.font = `bold ${S.fontSize}px monospace`;
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+
+    S.cols = Math.floor(w / S.fontSize);
+    S.col = Array.from({length: S.cols}, () => ({
+      pos: Math.random()*-50|0,
+      speed: 0.5 + Math.random()*1.0,
+      acc: 0,
+      length: 10 + Math.floor(Math.random()*18),
+      trail: []
+    }));
+  }
+  window.addEventListener('resize', resize, {passive:true});
+  resize();
+
+  const randCh = () => GLYPHS.charAt(Math.random()*GLYPHS.length | 0);
+
+  let last = 0;
+  function draw(ts){
+    const now = ts || performance.now();
+    const dt = last ? Math.min(50, now - last) : 16;
+    last = now;
+
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    ctx.fillRect(0, 0, cvs.width / S.dpr, cvs.height / S.dpr);
+
+    const speedFactor = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.6 : 1;
+    const timeScale = dt / 16;
+
+    for (let i=0; i<S.cols; i++){
+      const c = S.col[i];
+      const x = i * S.fontSize;
+      const v = c.speed * RAIN_SPEED * speedFactor * timeScale;
+      c.acc += v;
+
+      if (c.acc >= 1){
+        const steps = Math.floor(c.acc);
+        c.acc -= steps;
+        c.pos += steps;
+        for (let s=0; s<steps; s++){
+          c.trail.unshift(randCh());
+          if (c.trail.length > c.length) c.trail.pop();
+        }
+      }
+
+      for (let j=0; j<c.trail.length; j++){
+        const y = (c.pos - j) * S.fontSize;
+        if (y < -S.fontSize || y > window.innerHeight + S.fontSize) continue;
+        const fade = 1 - j / c.trail.length;
+        ctx.shadowBlur = j === 0 ? 8 : 0;
+        ctx.shadowColor = 'rgba(0,255,100,0.75)';
+        ctx.fillStyle = j === 0
+          ? '#67ff9a'
+          : `rgba(0,255,100,${0.15 + 0.65*fade})`;
+        ctx.fillText(c.trail[j], x, y);
+      }
+
+      if (c.pos * S.fontSize > window.innerHeight + c.length * S.fontSize){
+        c.pos = -Math.random()*20;
+        c.acc = 0;
+        c.length = 10 + Math.floor(Math.random()*18);
+        c.speed  = 0.5 + Math.random()*1.0;
+        c.trail.length = 0;
+      }
+    }
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+</script>
+
+</body>
+</html>
+

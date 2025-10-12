@@ -1,0 +1,81 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: ${PG_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [secure_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB} -h 127.0.0.1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    networks: [secure_net]
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    environment:
+      ENVIRONMENT: "production"
+      SECRET_KEY: ${SECRET_KEY}
+      CSRF_KEY: ${CSRF_KEY}
+      DATABASE_URL: postgresql+psycopg2://${PG_USER}:${PG_PASSWORD}@db:5432/${PG_DB}
+      REDIS_URL: redis://redis:6379/0
+      SESSION_COOKIE_NAME: session
+      CSRF_COOKIE_NAME: csrf_token
+      HOSTNAME: ${HOSTNAME}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks: [secure_net]
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "80:80"
+      # Ha már megvan a tanúsítvány, vedd ki a kommentet:
+      # - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./letsencrypt:/etc/letsencrypt
+      - ./certbot-webroot:/var/www/certbot
+    networks: [secure_net]
+    restart: unless-stopped
+
+  # (Opcionális) Certbot — Let's Encrypt tanúsítványhoz / megújításhoz
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - ./letsencrypt:/etc/letsencrypt
+      - ./certbot-webroot:/var/www/certbot
+    networks: [secure_net]
+    # Nem indul automatikusan; parancsról futtasd:
+    # docker compose run --rm certbot certonly --webroot -w /var/www/certbot \
+    #   -d your.domain.tld -m you@example.com --agree-tos --no-eff-email
+
+networks:
+  secure_net:
+
+volumes:
+  pgdata:
+  redisdata:
+

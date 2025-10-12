@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="title">🔐 System Access</h1>
+
+{% if message %}
+<div class="msg">{{ message }}</div>
+{% endif %}
+
+<form method="post" action="/auth/login">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="field">
+    <label>Felhasználónév</label>
+    <input name="username" type="text" required autocomplete="username">
+  </div>
+  <div class="field">
+    <label>Jelszó</label>
+    <input name="password" type="password" required autocomplete="current-password">
+  </div>
+  <button class="btn" type="submit">Belépés</button>
+</form>
+
+<hr>
+
+<h2>Regisztráció</h2>
+<form method="post" action="/auth/register">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="field">
+    <label>Felhasználónév</label>
+    <input name="username" type="text" required autocomplete="username">
+  </div>
+  <div class="field">
+    <label>Jelszó</label>
+    <input name="password" type="password" required autocomplete="new-password">
+  </div>
+  <button class="btn" type="submit">Fiók létrehozása</button>
+</form>
+{% endblock %}
+
