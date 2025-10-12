@@ -16,5 +16,5 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(256))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    account_level: Mapped[str] = mapped_column(String(32), default="Free")  # 👈 új mező
-
+    account_level: Mapped[str] = mapped_column(String(32), default="Free")  
+    last_activity = mapped_column(DateTime, default=datetime.utcnow) 
