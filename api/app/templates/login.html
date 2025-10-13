@@ -119,12 +119,15 @@
         <input id="ru" name="username" type="text" autocomplete="off" required>
       </div>
       <div>
+        <label for="re">E-mail</label> <!-- ÚJ -->
+        <input id="re" name="email" type="email" autocomplete="email" required>
+      </div>
+      <div>
         <label for="rp">Jelszó</label>
         <input id="rp" name="password" type="password" autocomplete="new-password" required>
       </div>
       <input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}">
       <button class="btn" type="submit">Fiók létrehozása</button>
-
       <!-- ✨ JELSZÓ KÖVETELMÉNYEK ✨ -->
       <p class="hint" style="margin-bottom: 0;">
         A jelszónak legalább 10 karakterből kell állnia, és tartalmaznia kell:
