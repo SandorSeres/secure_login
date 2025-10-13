@@ -42,9 +42,9 @@ services:
       SMTP_PORT: "587"                      # ha 465-öt használsz, akkor SSL=True
       SMTP_STARTTLS: "true"
       SMTP_SSL: "false"
-      SMTP_USER: "sseres@code.hu"
-      SMTP_PASSWORD: 
-      SMTP_FROM: "sseres@code.hu"
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
       
     depends_on:
       db:
