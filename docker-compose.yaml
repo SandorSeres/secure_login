@@ -43,7 +43,7 @@ services:
       SMTP_STARTTLS: "true"
       SMTP_SSL: "false"
       SMTP_USER: "sseres@code.hu"
-      SMTP_PASSWORD: "S1angerup"
+      SMTP_PASSWORD: 
       SMTP_FROM: "sseres@code.hu"
       
     depends_on:
