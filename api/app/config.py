@@ -12,8 +12,7 @@ class Settings(BaseSettings):
     REDIS_HOST: str = "redis"
     REDIS_PORT: int = 6379
 
-    HOSTNAME: str = "localhost"
-    BASE_URL: str = "http://localhost"  # linkekhez
+    APP_HOST: str = "http://localhost"  # linkekhez
     SMTP_HOST: str = "mailhog"
     SMTP_PORT: int = 1025
     SMTP_USER: str = ""

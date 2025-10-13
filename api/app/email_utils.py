@@ -4,7 +4,7 @@ from .config import settings
 
 def send_reset_email(to_email: str, token: str) -> bool:
     try:
-        reset_link = f"{settings.BASE_URL.rstrip('/')}/reset-password?token={token}"
+        reset_link = f"{settings.APP_HOST.rstrip('/')}/reset-password?token={token}"
 
         msg = EmailMessage()
         msg["Subject"] = "Jelszó visszaállítás"
