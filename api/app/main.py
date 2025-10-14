@@ -208,7 +208,8 @@ async def login(request: Request, db: SASession = Depends(get_db)):
 
 @app.get("/profile", response_class=HTMLResponse)
 async def profile(request: Request, user: User = Depends(current_user)):
-    csrf = issue_csrf()
+    # csrf = issue_csrf()
+    csrf_token = request.cookies.get(settings.CSRF_COOKIE_NAME) or issue_csrf()
     html = templates.get_template("profile.html").render(
         title="Profil",
         username=user.username,
@@ -238,7 +239,7 @@ async def logout(request: Request):
 
 @app.get("/forgot-password", response_class=HTMLResponse)
 async def forgot_password_form(request: Request):
-    csrf_token = issue_csrf()
+    csrf_token = request.cookies.get(settings.CSRF_COOKIE_NAME) or issue_csrf()
     html = templates.get_template("forgot_password.html").render(
         title="Elfelejtett jelszó",
         csrf_token=csrf_token
@@ -283,7 +284,7 @@ async def reset_password_page(request: Request, token: str):
     if not username:
         return HTMLResponse("A token érvénytelen vagy lejárt.", status_code=400)
 
-    csrf = issue_csrf()
+    csrf_token = request.cookies.get(settings.CSRF_COOKIE_NAME) or issue_csrf()
     html = templates.get_template("reset_password.html").render(
         title="Új jelszó megadása",
         csrf_token=csrf,

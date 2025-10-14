@@ -25,6 +25,9 @@
       content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
       background: radial-gradient(1200px 600px at 50% 35%, transparent 40%, rgba(0,0,0,.45) 100%);
     }
+    a:hover {
+      text-decoration: underline;
+    }
     canvas#rain{position:fixed; inset:0; z-index:0; pointer-events:none}
     .scan{position:fixed; inset:0; z-index:0;
       background:repeating-linear-gradient(transparent 0 2px, rgba(0,255,100,.07) 2px 3px)}
@@ -109,6 +112,11 @@
       </div>
       <input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}">
       <button class="btn" type="submit">Belépés</button>
+      <p class="hint" style="text-align:center; margin-top:8px;">
+        <a href="/forgot-password" style="color: var(--neo); text-decoration: none;">
+          Elfelejtett jelszó?
+        </a>
+      </p>
     </form>
 
     <div class="sep"></div>
