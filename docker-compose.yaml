@@ -45,7 +45,6 @@ services:
       SMTP_USER: ${SMTP_USER}
       SMTP_PASSWORD: ${SMTP_PASSWORD}
       SMTP_FROM: ${SMTP_FROM}
-      
     depends_on:
       db:
         condition: service_healthy
@@ -54,11 +53,11 @@ services:
     networks: [secure_net]
     restart: unless-stopped
 
-  mailhog:
-    image: mailhog/mailhog
-    ports:
-      - "8025:8025"   # web UI itt: http://localhost:8025
-    networks: [secure_net]
+#  mailhog:
+#    image: mailhog/mailhog
+#    ports:
+#      - "8025:8025"   # web UI itt: http://localhost:8025
+#    networks: [secure_net]
       
   nginx:
     image: nginx:1.27-alpine
