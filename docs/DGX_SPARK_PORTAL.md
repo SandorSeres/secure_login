@@ -95,6 +95,9 @@ előre létre kell hozni, ha ott is csoportalapú jogosultságot használsz.
    `PG_PASSWORD` értékeket, a működő SMTP-adatokat, valamint a publikált
    `AUTH_IMAGE` teljes nevét. A `DATABASE_URL` jelszava egyezzen a
    `PG_PASSWORD` értékével; URL-speciális karaktereket percent-kódolni kell.
+   A `GROUPS_JSON`-ban pontosan egy alapértelmezett csoport legyen, az
+   `APPLICATIONS_JSON.allowed_groups` mezői pedig csak itt definiált
+   csoportazonosítókra hivatkozzanak.
 
 4. Indítsd el az AI Dashboardot a `127.0.0.1:8000`, a Chat Harnesst pedig a
    `127.0.0.1:8001` portkötéssel. Ellenőrizd, hogy egyik app sem foglalja a
@@ -147,6 +150,24 @@ belépés login nélkül.
 
 - Az `APPLICATIONS_JSON` jelenleg mindkét appot Pro és Enterprise csoportnak
   engedélyezi; ezt adminisztrátori döntés alapján módosíthatod.
+- Új csoporthoz bővítsd a `GROUPS_JSON` értékét, majd hozd újra létre az
+  auth konténert:
+
+  ```bash
+  docker compose --env-file ../.env config --quiet
+  docker compose --env-file ../.env up -d --no-deps --force-recreate auth
+  ```
+
+  Ehhez nem kell új image-et építeni. Egy új alkalmazás publikus domainje
+  ettől függetlenül továbbra is Caddy-konfigurációt igényel.
+- A csoport `id` értékét kezeld stabil azonosítóként. Ha egy használatban
+  lévő csoportot törölsz vagy átnevezel, a korábbi tagjai alapértelmezetten
+  egyetlen konfigurált alkalmazáshoz sem kapnak hozzáférést, amíg egy admin
+  érvényes csoportba nem sorolja őket.
+- Az auth szolgáltatás minden induláskor tranzakciósan az `access_groups`
+  adatbázis-táblába szinkronizálja a validált csoportkonfigurációt. A
+  `deploy/admin.sh` ebből a táblából kínálja fel a hozzárendelhető csoportokat,
+  ezért nem függ a `.env` fájl helyétől.
 - A Dashboard továbbra is egy közös, single-user munkatér: a proxy hozzáférést
   szabályoz, de nem teremt alkalmazáson belüli tenant-szeparációt.
 - Mentsd rendszeresen a `pgdata`, `redisdata` és `caddy-data` Docker volume-ot.

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+args="$*"
+
+case "$1" in
+    ps)
+        echo "test-db-container"
+        ;;
+    inspect)
+        case "$args" in
+            *'.Config.Image'*) echo "postgres:16-alpine" ;;
+            *'.Name'*) echo "/test-db" ;;
+            *) exit 1 ;;
+        esac
+        ;;
+    exec)
+        case "$args" in
+            *'printenv POSTGRES_USER'*) echo "test-user" ;;
+            *'printenv POSTGRES_DB'*) echo "test-db" ;;
+            *'SELECT CASE'*) echo "yes" ;;
+            *'SELECT data_type'*) echo "character varying" ;;
+            *"to_regclass('public.access_groups')"*) echo "access_groups" ;;
+            *'count(*) FROM access_groups'*) echo "1" ;;
+            *'SELECT id FROM access_groups'*)
+                echo "free"
+                echo "pro"
+                ;;
+            *'v_username=alice'*) echo "Free" ;;
+            *) : ;;
+        esac
+        ;;
+    *)
+        exit 1
+        ;;
+esac

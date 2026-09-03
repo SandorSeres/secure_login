@@ -37,6 +37,9 @@ services:
       SESSION_COOKIE_NAME: session
       CSRF_COOKIE_NAME: csrf_token
       APP_HOST: ${APP_HOST}
+      GROUPS_JSON: ${GROUPS_JSON}
+      APPLICATIONS_JSON: ${APPLICATIONS_JSON}
+      ADMIN_USERNAMES: ${ADMIN_USERNAMES}
       
       SMTP_HOST: "smtp.integrity.hu"
       SMTP_PORT: "587"                      # ha 465-öt használsz, akkor SSL=True
@@ -92,4 +95,3 @@ networks:
 volumes:
   pgdata:
   redisdata:
-

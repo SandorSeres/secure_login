@@ -11,7 +11,8 @@ from pydantic import ValidationError
 from urllib.parse import quote, unquote
 
 from .config import settings
-from .models import AccountLevel, Base, engine, SessionLocal, User
+from .models import AccessGroup, Base, engine, SessionLocal, User
+from .database_migrations import migrate_account_level_to_string, sync_access_groups
 from .schemas import RegisterIn, ResetPasswordIn
 from .security import (
     hash_password,
@@ -26,6 +27,7 @@ from .authorization import (
     applications_for_user,
     is_admin,
     require_application_access,
+    user_group_name,
     user_groups,
 )
 from .rate_limit import limiter, is_locked, record_failed_login, reset_fail
@@ -45,7 +47,9 @@ templates = Environment(
 )
 
 # Adatbázis init
+migrate_account_level_to_string(engine)
 Base.metadata.create_all(bind=engine)
+sync_access_groups(engine, AccessGroup.__table__, settings.GROUPS_JSON)
 
 
 # Rate limit middleware (dekorátorok intézik a limiteket, itt csak továbbengedünk)
@@ -164,7 +168,7 @@ async def register(request: Request, db: SASession = Depends(get_db)):
         username=data.username,
         email=data.email,
         password_hash=hash_password(data.password),
-        account_level="Free",
+        account_level=settings.default_group.id,
     )
     db.add(u)
     try:
@@ -235,7 +239,7 @@ async def profile(request: Request, user: User = Depends(current_user)):
         title="Profil",
         username=user.username,
         csrf_token=csrf_token,
-        account_level=getattr(user, "account_level", "Free").value,
+        account_level=user_group_name(user),
     )
     resp = HTMLResponse(html)
     set_csrf_cookie(resp, csrf_token, 3600)
@@ -248,7 +252,7 @@ async def applications(request: Request, user: User = Depends(current_user)):
     html = templates.get_template("apps.html").render(
         title="Alkalmazások",
         username=user.username,
-        account_level=user.account_level.value,
+        account_level=user_group_name(user),
         applications=applications_for_user(user),
         csrf_token=csrf_token,
     )
@@ -397,7 +401,7 @@ async def reset_password(request: Request, db: SASession = Depends(get_db)):
 async def set_level(
     request: Request,
     username: str = Form(),
-    level: AccountLevel = Form(),
+    level: str = Form(),
     administrator: User = Depends(current_user),
     db: SASession = Depends(get_db),
 ):
@@ -409,12 +413,16 @@ async def set_level(
     if not is_admin(administrator):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
 
+    group = settings.group_by_id(level)
+    if group is None:
+        raise HTTPException(status_code=422, detail="Invalid account group")
+
     target_user = db.query(User).filter(User.username == username).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
-    target_user.account_level = level
+    target_user.account_level = group.id
     db.commit()
-    return {"status": "ok", "new_level": level.value}
+    return {"status": "ok", "new_level": group.name}
 
 
 @app.get("/dashboard", response_class=HTMLResponse)

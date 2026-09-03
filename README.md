@@ -22,7 +22,7 @@ Ez a projekt egy **biztonságos bejelentkezési és regisztrációs rendszer**, 
 - ✅ Biztonságos jelszókezelés (Argon2 hash)
 - ✅ Session alapú authentikáció
 - ✅ Inaktivitás alapú **session timeout**
-- ✅ Felhasználói csoportok / fiókszintek (Free / Pro / Enterprise)
+- ✅ Konfigurálható felhasználói csoportok / fiókszintek
 - ✅ Konfigurált, csoportalapú alkalmazásportál
 - ✅ Password policy enforcement
 - ✅ Alap rate limiting
@@ -38,7 +38,8 @@ Ez a projekt egy **biztonságos bejelentkezési és regisztrációs rendszer**, 
 2. A jelszó a backendben validálásra kerül:
    - hossza, kis/nagybetű, szám, speciális karakter.
 3. A jelszót a rendszer **Argon2** segítségével hasheli.
-4. Az új felhasználó **alapértelmezett jogosultsága**: `Free`.
+4. Az új felhasználó a `GROUPS_JSON` bejegyzései közül az
+   `default: true` jelölésű csoportba kerül.
 5. Sikeres regisztráció után a rendszer visszairányít a login oldalra.
 
 ---
@@ -47,8 +48,35 @@ Ez a projekt egy **biztonságos bejelentkezési és regisztrációs rendszer**, 
 
 Az `APPLICATIONS_JSON` konfiguráció minden alkalmazáshoz megad egy azonosítót,
 megjelenített nevet, HTTPS URL-t és engedélyezett csoportokat. A belépett
-felhasználó csak a saját `Free`, `Pro` vagy `Enterprise` csoportjához rendelt
-alkalmazásokat látja a `/apps` oldalon.
+felhasználó csak a saját, `GROUPS_JSON`-ban definiált csoportjához rendelt
+alkalmazásokat látja a `/apps` oldalon. Minden `allowed_groups` értéknek
+létező csoportazonosítóra kell hivatkoznia; hibás konfigurációval a portál
+nem indul el.
+
+Példa:
+
+```dotenv
+GROUPS_JSON=[{"id":"free","name":"Free","default":true},{"id":"pro","name":"Pro"},{"id":"enterprise","name":"Enterprise"}]
+APPLICATIONS_JSON=[{"id":"ai-dashboard","name":"AI Dashboard","url":"https://dashboard.code.hu","allowed_groups":["pro","enterprise"],"enabled":true}]
+```
+
+Az első, ezt a funkciót tartalmazó image induláskor a korábbi PostgreSQL
+`account_level_enum` oszlopot szöveges oszloppá alakítja. A művelethez az
+adatbázis-felhasználónak `ALTER TABLE` jogosultság kell. Ezután egy új csoport
+felvétele nem igényel image buildet. A `.env` módosítása után a konténert
+újra kell létrehozni, mert a sima `restart` nem alkalmazza az új környezeti
+változókat:
+
+```bash
+cd deploy
+docker compose --env-file ../.env config --quiet
+docker compose --env-file ../.env up -d --no-deps --force-recreate auth
+```
+
+Az auth szolgáltatás a validált csoportlistát induláskor az
+`access_groups` adatbázis-táblába szinkronizálja. A `deploy/admin.sh` ebből a
+táblából olvas, ezért a script futtatási könyvtárában nincs szükség `.env`
+fájlra.
 
 A portál UI-ja nem biztonsági határ: a reverse proxy minden alkalmazásdomain
 kérésénél a belső `/auth/verify?application_id=<id>` végpontot hívja. Így a
@@ -67,7 +95,7 @@ Spark konfigurációért lásd [`docs/DGX_SPARK_PORTAL.md`](docs/DGX_SPARK_PORTA
    - A felhasználó átirányításra kerül az alkalmazásportálra.
 4. Az alkalmazásportálon megjelenik:
    - bejelentkezett felhasználónév,
-   - aktuális account szint (`Free` / `Pro` / `Enterprise`),
+   - aktuális, konfigurált account szint,
    - egyéb státuszinformációk.
 
 ---
@@ -105,9 +133,9 @@ A rendszer minden authentikált kérésnél:
 
 ## 🧰 Account szintek
 
-- `Free` – alapfunkciók
-- `Pro` – bővített szolgáltatások
-- `Enterprise` – korlátlan hozzáférés
+Az account szinteket a `GROUPS_JSON` definiálja. A csoport `id` mezője stabil,
+kisbetűs azonosító; a `name` a felületen megjelenő név. Pontosan egy
+csoporton kell `default: true` értéket megadni.
 
 ---
 

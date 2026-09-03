@@ -40,7 +40,7 @@ Ez a leírás bemutatja, hogyan regisztrálhatsz, jelentkezhetsz be, és hogyan 
 
 - Minden token csak a hozzá tartozó promptokhoz ad hozzáférést.
 - A tokenek időkorlátosak lehetnek, vagy visszavonhatók (pl. új token generálásakor a régi érvénytelenedik).
-- A jogosultsági szint (Free/Pro/Enterprise) befolyásolhatja, hogy milyen promptokat használhatsz.
+- A konfigurált jogosultsági csoportod befolyásolhatja, hogy milyen alkalmazásokat és funkciókat használhatsz.
 
 ## 5. Példa folyamat
 

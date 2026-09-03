@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from enum import Enum
 
 from sqlalchemy import (
+    Boolean,
     String,
     Integer,
     DateTime,
-    Enum as SAEnum,
     create_engine,
     func,
     UniqueConstraint,
@@ -37,14 +36,17 @@ SessionLocal = sessionmaker(
     future=True,
 )
 
-# --- Domain enumok -----------------------------------------------------------
-
-class AccountLevel(str, Enum):
-    Free = "Free"
-    Pro = "Pro"
-    Enterprise = "Enterprise"
-
 # --- Modellek ----------------------------------------------------------------
+
+
+class AccessGroup(Base):
+    __tablename__ = "access_groups"
+
+    id: Mapped[str] = mapped_column(String(63), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
+
 
 class User(Base):
     __tablename__ = "users"
@@ -69,11 +71,9 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
 
     # Fiók szint
-    account_level: Mapped[AccountLevel] = mapped_column(
-        SAEnum(AccountLevel, name="account_level_enum"),
+    account_level: Mapped[str] = mapped_column(
+        String(63),
         nullable=False,
-        default=AccountLevel.Free,                  # Python oldali default
-        server_default=AccountLevel.Free.value,    # DB oldali default
     )
 
     # Létrehozás ideje (időzónás UTC). Postgres-ben TIMESTAMPTZ.
@@ -96,4 +96,3 @@ class User(Base):
 
     def __repr__(self) -> str:
         return f"<User id={self.id} username={self.username!r} level={self.account_level}>"
-

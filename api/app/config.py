@@ -2,7 +2,28 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import Any, Optional
+
+
+class GroupConfig(BaseModel):
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
+    name: str = Field(min_length=1, max_length=100)
+    default: bool = False
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def normalize_id(cls, group_id: Any) -> str:
+        if not isinstance(group_id, str):
+            raise ValueError("group id must be a string")
+        return group_id.strip().casefold()
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, name: str) -> str:
+        normalized = name.strip()
+        if not normalized:
+            raise ValueError("group name cannot be blank")
+        return normalized
 
 
 class ApplicationConfig(BaseModel):
@@ -32,6 +53,7 @@ class Settings(BaseSettings):
     COOKIE_DOMAIN: Optional[str] = None
     COOKIE_SECURE: bool = True
     APP_HOST: str = "http://localhost"  # erre épülnek az e-mailes linkek
+    GROUPS_JSON: list[GroupConfig] = Field(min_length=1)
     APPLICATIONS_JSON: list[ApplicationConfig] = Field(default_factory=list)
     ADMIN_USERNAMES: set[str] = Field(default_factory=set)
 
@@ -70,11 +92,45 @@ class Settings(BaseSettings):
         return {username.strip().casefold() for username in usernames if username.strip()}
 
     @model_validator(mode="after")
-    def require_unique_application_ids(self) -> "Settings":
+    def validate_access_configuration(self) -> "Settings":
+        group_ids = [group.id for group in self.GROUPS_JSON]
+        if len(group_ids) != len(set(group_ids)):
+            raise ValueError("GROUPS_JSON contains duplicate group ids")
+
+        default_groups = [group for group in self.GROUPS_JSON if group.default]
+        if len(default_groups) != 1:
+            raise ValueError("GROUPS_JSON must contain exactly one default group")
+
         application_ids = [application.id for application in self.APPLICATIONS_JSON]
         if len(application_ids) != len(set(application_ids)):
             raise ValueError("APPLICATIONS_JSON contains duplicate application ids")
+
+        configured_group_ids = set(group_ids)
+        unknown_groups = sorted(
+            {
+                group_id
+                for application in self.APPLICATIONS_JSON
+                for group_id in application.allowed_groups
+                if group_id not in configured_group_ids
+            }
+        )
+        if unknown_groups:
+            raise ValueError(
+                "APPLICATIONS_JSON references unknown groups: "
+                + ", ".join(unknown_groups)
+            )
         return self
+
+    @property
+    def default_group(self) -> GroupConfig:
+        return next(group for group in self.GROUPS_JSON if group.default)
+
+    def group_by_id(self, group_id: str) -> GroupConfig | None:
+        normalized_id = group_id.strip().casefold()
+        return next(
+            (group for group in self.GROUPS_JSON if group.id == normalized_id),
+            None,
+        )
 
     # Segéd: effektív adatbázis URL
     def build_database_url(self) -> str:
