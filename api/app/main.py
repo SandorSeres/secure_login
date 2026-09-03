@@ -11,14 +11,22 @@ from pydantic import ValidationError
 from urllib.parse import quote, unquote
 
 from .config import settings
-from .models import Base, engine, SessionLocal, User
+from .models import AccountLevel, Base, engine, SessionLocal, User
 from .schemas import RegisterIn, ResetPasswordIn
 from .security import (
     hash_password,
     verify_password,
     create_session_value,
+    invalidate_session_value,
     verify_session_value,
     issue_csrf,
+    verify_csrf,
+)
+from .authorization import (
+    applications_for_user,
+    is_admin,
+    require_application_access,
+    user_groups,
 )
 from .rate_limit import limiter, is_locked, record_failed_login, reset_fail
 from .deps import get_db, current_user
@@ -62,10 +70,11 @@ def set_cookie(resp: StarletteResponse, name: str, value: str, max_age: int):
         key=name,
         value=value,
         max_age=max_age,
-        secure=True,          # fejlesztéshez HTTP-n lehet, hogy nem küldi; igény szerint állítsd
+        secure=settings.COOKIE_SECURE,
         httponly=True,
         samesite="Strict",
         path="/",
+        domain=settings.COOKIE_DOMAIN,
     )
 
 
@@ -74,16 +83,26 @@ def set_csrf_cookie(resp: StarletteResponse, value: str, max_age: int):
         key=settings.CSRF_COOKIE_NAME,
         value=value,
         max_age=max_age,
-        secure=True,          # lásd fent
+        secure=settings.COOKIE_SECURE,
         httponly=False,       # formokhoz kell
         samesite="Strict",
         path="/",
+        domain=settings.COOKIE_DOMAIN,
     )
 
 
 def render_template(name: str, **context):
     template = templates.get_template(name)
     return HTMLResponse(template.render(**context))
+
+
+def csrf_is_valid(form_token: str | None, cookie_token: str | None) -> bool:
+    return bool(
+        form_token
+        and cookie_token
+        and form_token == cookie_token
+        and verify_csrf(form_token)
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -114,7 +133,7 @@ async def register(request: Request, db: SASession = Depends(get_db)):
     form = await request.form()
     csrf_token = form.get("csrf_token")
     cookie_csrf = request.cookies.get(settings.CSRF_COOKIE_NAME)
-    if not csrf_token or not cookie_csrf or csrf_token != cookie_csrf:
+    if not csrf_is_valid(csrf_token, cookie_csrf):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     # validálás
@@ -173,7 +192,7 @@ async def login(request: Request, db: SASession = Depends(get_db)):
     form = await request.form()
     csrf_token = form.get("csrf_token")
     cookie_csrf = request.cookies.get(settings.CSRF_COOKIE_NAME)
-    if not csrf_token or not cookie_csrf or csrf_token != cookie_csrf:
+    if not csrf_is_valid(csrf_token, cookie_csrf):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     username = (form.get("username") or "").strip()
@@ -197,8 +216,10 @@ async def login(request: Request, db: SASession = Depends(get_db)):
 
     # sikeres autentikáció
     reset_fail(username, ip)
+    user.touch()
+    db.commit()
     session_val = create_session_value(user.username)
-    resp = RedirectResponse("/profile", status_code=303)
+    resp = RedirectResponse("/apps", status_code=303)
     set_cookie(resp, settings.SESSION_COOKIE_NAME, session_val, 6 * 60 * 60)  # 6 óra
 
     # új CSRF a következő formokra
@@ -221,16 +242,63 @@ async def profile(request: Request, user: User = Depends(current_user)):
     return resp
 
 
+@app.get("/apps", response_class=HTMLResponse)
+async def applications(request: Request, user: User = Depends(current_user)):
+    csrf_token = request.cookies.get(settings.CSRF_COOKIE_NAME) or issue_csrf()
+    html = templates.get_template("apps.html").render(
+        title="Alkalmazások",
+        username=user.username,
+        account_level=user.account_level.value,
+        applications=applications_for_user(user),
+        csrf_token=csrf_token,
+    )
+    resp = HTMLResponse(html)
+    set_csrf_cookie(resp, csrf_token, 3600)
+    return resp
+
+
+@app.get("/launch/{application_id}")
+async def launch_application(
+    application_id: str,
+    user: User = Depends(current_user),
+):
+    application = require_application_access(user, application_id)
+    return RedirectResponse(str(application.url), status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/auth/verify")
+async def verify_application_access(
+    application_id: str,
+    user: User = Depends(current_user),
+):
+    require_application_access(user, application_id)
+    return StarletteResponse(
+        status_code=status.HTTP_204_NO_CONTENT,
+        headers={
+            "X-Authenticated-User": user.username,
+            "X-Authenticated-Email": user.email,
+            "X-Authenticated-Groups": ",".join(sorted(user_groups(user))),
+        },
+    )
+
+
 @app.post("/auth/logout")
 async def logout(request: Request):
     form = await request.form()
     csrf_token = form.get("csrf_token")
     cookie_csrf = request.cookies.get(settings.CSRF_COOKIE_NAME)
-    if not csrf_token or not cookie_csrf or csrf_token != cookie_csrf:
+    if not csrf_is_valid(csrf_token, cookie_csrf):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     resp = RedirectResponse("/", status_code=303)
-    resp.delete_cookie(settings.SESSION_COOKIE_NAME, path="/")
+    session_value = request.cookies.get(settings.SESSION_COOKIE_NAME)
+    if session_value:
+        invalidate_session_value(session_value)
+    resp.delete_cookie(
+        settings.SESSION_COOKIE_NAME,
+        path="/",
+        domain=settings.COOKIE_DOMAIN,
+    )
     new_csrf = issue_csrf()
     set_csrf_cookie(resp, new_csrf, 3600)
     return resp
@@ -254,7 +322,7 @@ async def forgot_password(request: Request, db: SASession = Depends(get_db)):
     form = await request.form()
     csrf_token = form.get("csrf_token")
     cookie_csrf = request.cookies.get(settings.CSRF_COOKIE_NAME)
-    if not csrf_token or not cookie_csrf or csrf_token != cookie_csrf:
+    if not csrf_is_valid(csrf_token, cookie_csrf):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     email = (form.get("email") or "").strip()
@@ -294,7 +362,7 @@ async def reset_password(request: Request, db: SASession = Depends(get_db)):
     form = await request.form()
     csrf_token = form.get("csrf_token")
     cookie_csrf = request.cookies.get(settings.CSRF_COOKIE_NAME)
-    if not csrf_token or not cookie_csrf or csrf_token != cookie_csrf:
+    if not csrf_is_valid(csrf_token, cookie_csrf):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     token = (form.get("token") or "").strip()
@@ -325,15 +393,28 @@ async def reset_password(request: Request, db: SASession = Depends(get_db)):
     return resp
 
 
-# Egyszerű admin endpoint az account szint állítására (védd le később!)
 @app.post("/admin/set_level")
-async def set_level(username: str, level: str, db: SASession = Depends(get_db)):
-    user = db.query(User).filter(User.username == username).first()
-    if not user:
+async def set_level(
+    request: Request,
+    username: str = Form(),
+    level: AccountLevel = Form(),
+    administrator: User = Depends(current_user),
+    db: SASession = Depends(get_db),
+):
+    form = await request.form()
+    csrf_token = form.get("csrf_token")
+    cookie_csrf = request.cookies.get(settings.CSRF_COOKIE_NAME)
+    if not csrf_is_valid(csrf_token, cookie_csrf):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    if not is_admin(administrator):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+
+    target_user = db.query(User).filter(User.username == username).first()
+    if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
-    user.account_level = level
+    target_user.account_level = level
     db.commit()
-    return {"status": "ok", "new_level": level}
+    return {"status": "ok", "new_level": level.value}
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -348,4 +429,3 @@ async def dashboard(user: User = Depends(current_user)):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
-

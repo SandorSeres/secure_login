@@ -5,6 +5,7 @@ from .config import settings
 
 # Lustán hozzuk létre a klienst, ne modulbetöltéskor bukjon el
 _redis_client = None
+SESSION_PREFIX = "session:"
 
 def get_redis():
     global _redis_client
@@ -30,3 +31,14 @@ def invalidate_reset_token(token: str):
     r = get_redis()
     r.delete(f"reset:{token}")
 
+
+def create_session(session_id: str, username: str, ttl: timedelta) -> None:
+    get_redis().setex(f"{SESSION_PREFIX}{session_id}", ttl, username)
+
+
+def verify_session(session_id: str, username: str) -> bool:
+    return get_redis().get(f"{SESSION_PREFIX}{session_id}") == username
+
+
+def invalidate_session(session_id: str) -> None:
+    get_redis().delete(f"{SESSION_PREFIX}{session_id}")

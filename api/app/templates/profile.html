@@ -3,9 +3,9 @@
 <h1 class="title">👤 Profil</h1>
 <p><strong>Felhasználó:</strong> {{ username }}</p>
 <p>Jelenlegi csomagod: <strong>{{ account_level }}</strong></p>
+<p><a href="/apps">Elérhető alkalmazások</a></p>
 <form method="post" action="/auth/logout">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <button class="btn danger" type="submit">Kijelentkezés</button>
 </form>
 {% endblock %}
-

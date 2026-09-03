@@ -1,10 +1,12 @@
-import secrets, time
-from datetime import timedelta, datetime
+import json
+import secrets
+from datetime import timedelta
 from typing import Optional
 from itsdangerous import TimestampSigner, BadSignature, SignatureExpired
 from passlib.hash import argon2
 from fastapi import Request, HTTPException, status
 from .config import settings
+from .token_store import create_session, invalidate_session, verify_session
 
 # Password hashing
 def hash_password(pw: str) -> str:
@@ -22,16 +24,32 @@ CSRF_TTL = 60 * 60  # 1 hour
 SESSION_TTL = 60 * 60 * 6  # 6 hours
 
 def create_session_value(username: str) -> str:
-    payload = f"{username}|{int(time.time())}"
+    session_id = secrets.token_urlsafe(32)
+    create_session(session_id, username, timedelta(seconds=SESSION_TTL))
+    payload = json.dumps({"session_id": session_id, "username": username}, separators=(",", ":"))
     return _session_signer.sign(payload).decode()
 
 def verify_session_value(value: str) -> Optional[str]:
     try:
         raw = _session_signer.unsign(value, max_age=SESSION_TTL).decode()
-        username, issued = raw.split("|")
-        return username
-    except (BadSignature, SignatureExpired):
+        payload = json.loads(raw)
+        username = payload["username"]
+        session_id = payload["session_id"]
+        if not isinstance(username, str) or not isinstance(session_id, str):
+            return None
+        return username if verify_session(session_id, username) else None
+    except (BadSignature, SignatureExpired, KeyError, TypeError, ValueError):
         return None
+
+
+def invalidate_session_value(value: str) -> None:
+    try:
+        raw = _session_signer.unsign(value, max_age=SESSION_TTL).decode()
+        session_id = json.loads(raw)["session_id"]
+        if isinstance(session_id, str):
+            invalidate_session(session_id)
+    except (BadSignature, SignatureExpired, KeyError, TypeError, ValueError):
+        return
 
 # CSRF token (double-submit cookie + hidden form field)
 _csrf_signer = TimestampSigner(settings.CSRF_KEY)
@@ -55,4 +73,3 @@ def require_csrf(request: Request):
     cookie = request.cookies.get(settings.CSRF_COOKIE_NAME)
     if not field or not cookie or field != cookie or not verify_csrf(field):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CSRF validation failed")
-

@@ -1,0 +1,69 @@
+{
+	# HTTPS-only deployment: do not create an HTTP redirect listener.
+	auto_https disable_redirects
+	admin off
+}
+
+{$AUTH_DOMAIN} {
+	tls {
+		issuer acme {
+			email {$ACME_EMAIL}
+			disable_http_challenge
+		}
+	}
+	reverse_proxy 127.0.0.1:8100
+}
+
+{$AI_DASHBOARD_DOMAIN} {
+	tls {
+		issuer acme {
+			email {$ACME_EMAIL}
+			disable_http_challenge
+		}
+	}
+
+	route {
+		request_header -X-Authenticated-User
+		request_header -X-Authenticated-Email
+		request_header -X-Authenticated-Groups
+
+		forward_auth 127.0.0.1:8100 {
+			uri /auth/verify?application_id=ai-dashboard
+			copy_headers X-Authenticated-User X-Authenticated-Email X-Authenticated-Groups
+			@unauthenticated status 401
+			handle_response @unauthenticated {
+				redir https://{$AUTH_DOMAIN}/ 303
+			}
+		}
+
+		reverse_proxy 127.0.0.1:8000
+	}
+}
+
+{$CHAT_HARNESS_DOMAIN} {
+	tls {
+		issuer acme {
+			email {$ACME_EMAIL}
+			disable_http_challenge
+		}
+	}
+
+	route {
+		request_header -X-Authenticated-User
+		request_header -X-Authenticated-Email
+		request_header -X-Authenticated-Groups
+
+		forward_auth 127.0.0.1:8100 {
+			uri /auth/verify?application_id=chat-harness
+			copy_headers X-Authenticated-User X-Authenticated-Email X-Authenticated-Groups
+			@unauthenticated status 401
+			handle_response @unauthenticated {
+				redir https://{$AUTH_DOMAIN}/ 303
+			}
+		}
+
+		reverse_proxy 127.0.0.1:8001 {
+			flush_interval -1
+		}
+	}
+}

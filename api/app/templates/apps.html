@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="title">Alkalmazások</h1>
+<p class="msg">Belépve: <strong>{{ username }}</strong> ({{ account_level }})</p>
+
+{% if applications %}
+<div class="application-list">
+  {% for application in applications %}
+  <a class="application-card" href="/launch/{{ application.id }}">
+    <strong>{{ application.name }}</strong>
+    {% if application.description %}<span>{{ application.description }}</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<p class="msg">A jelenlegi csoportodhoz nincs elérhető alkalmazás.</p>
+{% endif %}
+
+<p><a href="/profile">Profil</a></p>
+<form method="post" action="/auth/logout">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}">
+  <button class="btn danger" type="submit">Kijelentkezés</button>
+</form>
+{% endblock %}

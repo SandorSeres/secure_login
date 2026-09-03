@@ -19,10 +19,6 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
-# Inaktivitási limit (másodpercben)
-MAX_IDLE_SECONDS = 600  # 10 perc
-
-
 def current_user(request: Request, db: Session = Depends(get_db)) -> User:
     # 1) Session süti beolvasása
     session_val = request.cookies.get(settings.SESSION_COOKIE_NAME)
@@ -57,7 +53,7 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         if last.tzinfo is None:
             last = last.replace(tzinfo=timezone.utc)
 
-        if now - last > timedelta(seconds=MAX_IDLE_SECONDS):
+        if now - last > timedelta(minutes=settings.SESSION_TIMEOUT_MINUTES):
             # Lejárt a session az inaktivitás miatt
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -69,4 +65,3 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
         db.commit()
 
     return user
-

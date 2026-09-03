@@ -1,0 +1,10 @@
+services:
+  dashboard:
+    networks:
+      spark-gateway:
+        aliases:
+          - dashboard
+
+networks:
+  spark-gateway:
+    external: true

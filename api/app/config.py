@@ -1,7 +1,25 @@
 from __future__ import annotations
 
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 from pydantic_settings import BaseSettings
 from typing import Optional
+
+
+class ApplicationConfig(BaseModel):
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=500)
+    url: HttpUrl
+    allowed_groups: set[str] = Field(min_length=1)
+    enabled: bool = True
+
+    @field_validator("allowed_groups")
+    @classmethod
+    def normalize_groups(cls, groups: set[str]) -> set[str]:
+        normalized = {group.strip().casefold() for group in groups if group.strip()}
+        if not normalized:
+            raise ValueError("at least one allowed group is required")
+        return normalized
 
 
 class Settings(BaseSettings):
@@ -10,8 +28,12 @@ class Settings(BaseSettings):
     CSRF_KEY: str
     SESSION_COOKIE_NAME: str = "session"
     CSRF_COOKIE_NAME: str = "csrf_token"
-    SESSION_TIMEOUT_MINUTES: int = 30
+    SESSION_TIMEOUT_MINUTES: int = Field(default=30, ge=1, le=720)
+    COOKIE_DOMAIN: Optional[str] = None
+    COOKIE_SECURE: bool = True
     APP_HOST: str = "http://localhost"  # erre épülnek az e-mailes linkek
+    APPLICATIONS_JSON: list[ApplicationConfig] = Field(default_factory=list)
+    ADMIN_USERNAMES: set[str] = Field(default_factory=set)
 
     # --- Database ---
     DATABASE_URL: Optional[str] = None  # ha nincs megadva, PG_* alapján képezzük
@@ -42,6 +64,18 @@ class Settings(BaseSettings):
         env_file = ".env"
         extra = "ignore"
 
+    @field_validator("ADMIN_USERNAMES")
+    @classmethod
+    def normalize_admin_usernames(cls, usernames: set[str]) -> set[str]:
+        return {username.strip().casefold() for username in usernames if username.strip()}
+
+    @model_validator(mode="after")
+    def require_unique_application_ids(self) -> "Settings":
+        application_ids = [application.id for application in self.APPLICATIONS_JSON]
+        if len(application_ids) != len(set(application_ids)):
+            raise ValueError("APPLICATIONS_JSON contains duplicate application ids")
+        return self
+
     # Segéd: effektív adatbázis URL
     def build_database_url(self) -> str:
         if self.DATABASE_URL:
@@ -70,4 +104,3 @@ if not settings.DATABASE_URL:
 # Ugyanez Redisre: ha nincs explicit REDIS_URL, állítsuk be az effektívet
 if not settings.REDIS_URL:
     settings.REDIS_URL = settings.build_redis_url()
-

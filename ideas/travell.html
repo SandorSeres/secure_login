@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="hu" data-lang="hu">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Travel AI Platform – AI travel assistant with Hungarian and English language switch." />
+  <title>Travel AI Platform</title>
+  <style>
+    :root {
+      --bg: #07111f;
+      --bg-2: #0b1728;
+      --surface: rgba(255, 255, 255, 0.075);
+      --border: rgba(255, 255, 255, 0.14);
+      --text: #f6f8fc;
+      --muted: #a8b5ca;
+      --muted-2: #7d8ba1;
+      --accent: #38bdf8;
+      --accent-2: #a78bfa;
+      --accent-3: #34d399;
+      --radius: 24px;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+      --max: 1200px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(56, 189, 248, 0.24), transparent 32%),
+        radial-gradient(circle at 88% 8%, rgba(167, 139, 250, 0.22), transparent 34%),
+        radial-gradient(circle at 55% 105%, rgba(52, 211, 153, 0.13), transparent 34%),
+        linear-gradient(180deg, var(--bg), var(--bg-2));
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    button, input { font: inherit; }
+    .container { width: min(var(--max), calc(100% - 40px)); margin: 0 auto; }
+
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(7, 17, 31, 0.76);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      backdrop-filter: blur(18px);
+    }
+    .nav-inner {
+      min-height: 76px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 900; letter-spacing: -0.04em; }
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 15px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 14px 42px rgba(56,189,248,.28);
+    }
+    .nav-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+    .nav-links { display: flex; gap: 16px; color: var(--muted); font-size: 14px; }
+    .nav-links a:hover { color: var(--text); }
+
+    .lang-toggle {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.12);
+    }
+    .lang-toggle button {
+      border: 0;
+      cursor: pointer;
+      color: var(--muted);
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: transparent;
+      font-weight: 800;
+      font-size: 13px;
+    }
+    html[data-lang="hu"] .lang-toggle button[data-set-lang="hu"],
+    html[data-lang="en"] .lang-toggle button[data-set-lang="en"] {
+      color: #06111f;
+      background: linear-gradient(135deg, #7dd3fc, #c4b5fd);
+    }
+
+    .hero {
+      padding: 92px 0 52px;
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap: 42px;
+      align-items: center;
+    }
+    .eyebrow {
+      width: fit-content;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      color: #dbeafe;
+      background: rgba(56,189,248,.12);
+      border: 1px solid rgba(56,189,248,.28);
+      font-size: 13px;
+      font-weight: 850;
+    }
+    h1 { margin: 22px 0 18px; font-size: clamp(42px, 7vw, 78px); line-height: .95; letter-spacing: -.075em; }
+    h2 { margin: 0; font-size: clamp(30px, 4vw, 48px); line-height: 1; letter-spacing: -.055em; }
+    h3 { margin: 0; letter-spacing: -.035em; }
+    .lead { max-width: 720px; color: var(--muted); font-size: 18px; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 32px; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 13px 19px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      font-weight: 900;
+      font-size: 14px;
+      transition: .18s ease;
+    }
+    .btn:hover { transform: translateY(-2px); }
+    .btn-primary { color: #04111f; background: linear-gradient(135deg, #7dd3fc, #c4b5fd); box-shadow: 0 18px 50px rgba(56,189,248,.24); }
+    .btn-secondary { color: var(--text); background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.13); }
+
+    .hero-panel {
+      position: relative;
+      overflow: hidden;
+      min-height: 430px;
+      padding: 24px;
+      border-radius: 34px;
+      background: linear-gradient(180deg, rgba(255,255,255,.13), rgba(255,255,255,.055));
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+    .hero-panel::before {
+      content: "";
+      position: absolute;
+      inset: -120px -90px auto auto;
+      width: 280px;
+      height: 280px;
+      border-radius: 999px;
+      background: rgba(56,189,248,.24);
+      filter: blur(8px);
+    }
+    .dashboard-card {
+      position: relative;
+      padding: 18px;
+      border-radius: 22px;
+      background: rgba(4,13,26,.58);
+      border: 1px solid rgba(255,255,255,.12);
+      margin-bottom: 14px;
+    }
+    .dashboard-card strong { display: block; margin-bottom: 6px; font-size: 16px; }
+    .dashboard-card span { color: var(--muted); font-size: 14px; }
+    .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 18px; }
+    .metric { padding: 14px; border-radius: 18px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1); }
+    .metric b { display: block; font-size: 24px; letter-spacing: -.045em; }
+    .metric small { color: var(--muted); font-size: 12px; }
+
+    .section { padding: 54px 0; }
+    .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+    .section-head p { max-width: 580px; margin: 0; color: var(--muted); }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 14px;
+      align-items: center;
+      padding: 14px;
+      border-radius: 24px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.1);
+      margin-bottom: 20px;
+    }
+    .search {
+      width: 100%;
+      min-height: 48px;
+      padding: 0 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.12);
+      outline: none;
+      color: var(--text);
+      background: rgba(3,10,22,.55);
+    }
+    .search::placeholder { color: var(--muted-2); }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      border: 1px solid rgba(255,255,255,.12);
+      color: var(--muted);
+      background: rgba(255,255,255,.07);
+      padding: 9px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 800;
+      font-size: 13px;
+    }
+    .chip.active { color: #06111f; background: linear-gradient(135deg, #7dd3fc, #c4b5fd); border-color: transparent; }
+
+    .quick-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+    .quick-card, .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 16px 42px rgba(0,0,0,.16);
+      backdrop-filter: blur(12px);
+    }
+    .quick-card { padding: 20px; min-height: 148px; transition: .18s ease; }
+    .quick-card:hover, .feature-card:hover { transform: translateY(-4px); background: rgba(255,255,255,.105); }
+    .icon {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      border-radius: 16px;
+      margin-bottom: 14px;
+      background: rgba(56,189,248,.13);
+      border: 1px solid rgba(56,189,248,.24);
+      font-size: 22px;
+    }
+    .quick-card p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+
+    .category-block { margin-top: 26px; }
+    .category-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+    .category-title .label { display: flex; align-items: center; gap: 12px; }
+    .category-title .label span { font-size: 28px; }
+    .category-title small { color: var(--muted); font-weight: 800; }
+    .feature-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .feature-card { padding: 20px; display: flex; flex-direction: column; min-height: 286px; }
+    .feature-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .tag { padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); color: #dbeafe; font-size: 12px; font-weight: 900; white-space: nowrap; }
+    .feature-card h3 { font-size: 18px; margin-bottom: 10px; }
+    .feature-card p { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+    .feature-foot { margin-top: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+    .pill { padding: 6px 9px; border-radius: 999px; background: rgba(52,211,153,.1); color: #bbf7d0; border: 1px solid rgba(52,211,153,.18); font-size: 12px; font-weight: 850; }
+    .feature-action { margin-top: 16px; display: flex; align-items: center; justify-content: flex-end; }
+    .start-btn { border: 0; cursor: pointer; padding: 11px 15px; border-radius: 999px; color: #04111f; background: linear-gradient(135deg, #7dd3fc, #c4b5fd); font-weight: 950; font-size: 13px; white-space: nowrap; }
+    .start-btn:hover { transform: translateY(-1px); }
+    .empty-state { padding: 22px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+
+    .cta { margin: 58px 0 70px; padding: 42px; border-radius: 36px; background: linear-gradient(135deg, rgba(56,189,248,.2), rgba(167,139,250,.18)); border: 1px solid rgba(255,255,255,.16); box-shadow: var(--shadow); display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+    .cta p { margin: 10px 0 0; color: var(--muted); max-width: 650px; }
+    footer { padding: 28px 0 42px; color: var(--muted); font-size: 14px; border-top: 1px solid rgba(255,255,255,.08); }
+    .toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(20px); opacity: 0; pointer-events: none; z-index: 100; max-width: min(620px, calc(100% - 28px)); padding: 14px 16px; border-radius: 18px; background: rgba(4,13,26,.94); border: 1px solid rgba(255,255,255,.16); box-shadow: var(--shadow); color: var(--text); transition: .18s ease; }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    @media (max-width: 1020px) {
+      .hero { grid-template-columns: 1fr; }
+      .quick-grid, .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .hero-panel { min-height: auto; }
+      .toolbar { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 700px) {
+      .container { width: min(100% - 28px, var(--max)); }
+      .nav-inner { align-items: flex-start; flex-direction: column; padding: 14px 0; }
+      .nav-actions { justify-content: flex-start; }
+      .nav-links { flex-wrap: wrap; }
+      .hero { padding-top: 58px; }
+      .quick-grid, .feature-grid, .metric-grid { grid-template-columns: 1fr; }
+      .section-head, .cta { align-items: flex-start; flex-direction: column; }
+      .cta { padding: 28px; }
+      .category-title { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="#top" aria-label="Travel AI Platform">
+        <span class="brand-mark">✈️</span>
+        <span>Travel AI Platform</span>
+      </a>
+      <div class="nav-actions">
+        <div class="nav-links">
+          <a href="#quick" data-i18n="nav.quick">Gyorsindítók</a>
+          <a href="#features" data-i18n="nav.features">Funkciók</a>
+        </div>
+        <div class="lang-toggle" aria-label="Language selector">
+          <button type="button" data-set-lang="hu">HU</button>
+          <button type="button" data-set-lang="en">EN</button>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <main id="top" class="container">
+    <section class="hero">
+      <div>
+        <span class="eyebrow" data-i18n="hero.eyebrow">AI travel assistant · repülés · szállás · programok · üzlet</span>
+        <h1 data-i18n="hero.title">Okos utazástervezés egy helyen</h1>
+        <p class="lead" data-i18n="hero.lead">Válassz egy utazási célt, add meg a szükséges adatokat, és az AI segít repülőjegyek, szállások, költségek, programok, üzleti utak, biztonsági kérdések és hosszabb utazások megtervezésében.</p>
+        <div class="hero-actions">
+          <a href="#features" class="btn btn-primary" data-i18n="hero.primary">Funkciók megtekintése →</a>
+          <a href="#how-it-works" class="btn btn-secondary" data-i18n="hero.secondary">Hogyan működik?</a>
+        </div>
+      </div>
+      <aside class="hero-panel" aria-label="Travel assistant highlights">
+        <div class="dashboard-card">
+          <strong data-i18n="panel.card1.title">Repülőjegyár-előrejelzés</strong>
+          <span data-i18n="panel.card1.text">Nézd meg, várhatóan merre mozognak az árak, és mikor érdemes foglalni.</span>
+        </div>
+        <div class="dashboard-card">
+          <strong data-i18n="panel.card2.title">Szállás és környék ajánló</strong>
+          <span data-i18n="panel.card2.text">Találj jó ár-érték arányú szállásokat, rugalmas foglalást és jó közlekedésű városrészeket.</span>
+        </div>
+        <div class="dashboard-card">
+          <strong data-i18n="panel.card3.title">Programok, üzleti utak és biztonság</strong>
+          <span data-i18n="panel.card3.text">Kérj útitervet, költségtervet, üzleti utazási segítséget vagy digitális biztonsági javaslatot.</span>
+        </div>
+        <div class="metric-grid">
+          <div class="metric"><b>9</b><small data-i18n="panel.metric1">kategória</small></div>
+          <div class="metric"><b>34</b><small data-i18n="panel.metric2">funkció</small></div>
+          <div class="metric"><b>2</b><small data-i18n="panel.metric3">nyelv</small></div>
+        </div>
+      </aside>
+    </section>
+
+    <section id="quick" class="section">
+      <div class="section-head">
+        <h2 data-i18n="quick.title">Gyorsindítók</h2>
+        <p data-i18n="quick.lead">Kezdd a leggyakoribb utazási feladatokkal.</p>
+      </div>
+      <div class="quick-grid">
+        <article class="quick-card">
+          <div class="icon">🛫</div>
+          <h3 data-i18n="quick.flight.title">Olcsóbb repülési lehetőségek</h3>
+          <p data-i18n="quick.flight.text">Alternatív útvonalak, közeli repterek, kevésbé ismert légitársaságok és foglalási tippek.</p>
+        </article>
+        <article class="quick-card">
+          <div class="icon">🏨</div>
+          <h3 data-i18n="quick.stay.title">Jó ár-érték arányú szállások</h3>
+          <p data-i18n="quick.stay.text">Szállások ár, értékelés, távolság, közlekedés és rugalmasság alapján.</p>
+        </article>
+        <article class="quick-card">
+          <div class="icon">🗺️</div>
+          <h3 data-i18n="quick.plan.title">Útiterv készítése</h3>
+          <p data-i18n="quick.plan.text">Egy- vagy többnapos programtervek idő-, távolság- és költségszempontokkal.</p>
+        </article>
+        <article class="quick-card">
+          <div class="icon">💼</div>
+          <h3 data-i18n="quick.business.title">Üzleti utazás</h3>
+          <p data-i18n="quick.business.text">Repülés, szállás, meeting helyszín, költségterv és dokumentumok egy helyen.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="features" class="section">
+      <div class="section-head">
+        <h2 data-i18n="features.title">Funkciók kategóriák szerint</h2>
+        <p data-i18n="features.lead">Válassz egy funkciót, és a rendszer bekéri a tervezéshez szükséges adatokat.</p>
+      </div>
+      <div class="toolbar" aria-label="Feature search and filters">
+        <input id="searchInput" class="search" type="search" data-i18n-placeholder="search.placeholder" placeholder="Keresés: repülő, hotel, budget, vízum, nomad..." />
+        <div class="filters" id="filters"></div>
+      </div>
+      <div id="featureRoot"></div>
+    </section>
+
+    <section id="how-it-works" class="section">
+      <div class="section-head">
+        <h2 data-i18n="how.title">Hogyan működik?</h2>
+        <p data-i18n="how.lead">Válassz egy funkciót, add meg az utazási adatokat, majd kérj személyre szabott javaslatot.</p>
+      </div>
+      <div class="quick-grid">
+        <article class="quick-card">
+          <div class="icon">1</div>
+          <h3 data-i18n="how.s1.title">Funkció választása</h3>
+          <p data-i18n="how.s1.text">Válassz repülés, szállás, költségtervezés, program vagy üzleti utazás témát.</p>
+        </article>
+        <article class="quick-card">
+          <div class="icon">2</div>
+          <h3 data-i18n="how.s2.title">Adatok megadása</h3>
+          <p data-i18n="how.s2.text">Add meg a várost, dátumot, költségkeretet, utazási stílust és egyéb preferenciákat.</p>
+        </article>
+        <article class="quick-card">
+          <div class="icon">3</div>
+          <h3 data-i18n="how.s3.title">AI javaslat</h3>
+          <p data-i18n="how.s3.text">A rendszer elkészíti a személyre szabott utazási ajánlást vagy tervet.</p>
+        </article>
+        <article class="quick-card">
+          <div class="icon">4</div>
+          <h3 data-i18n="how.s4.title">Mentés vagy folytatás</h3>
+          <p data-i18n="how.s4.text">Használd az eredményt útitervként, költségtervként, emlékeztetőként vagy foglalási döntéstámogatásként.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="cta">
+      <div>
+        <h2 data-i18n="cta.title">Kezdd el az utazástervezést</h2>
+        <p data-i18n="cta.text">Válassz egy funkciót, és pár adat megadása után személyre szabott javaslatot kapsz.</p>
+      </div>
+      <a href="#features" class="btn btn-primary" data-i18n="cta.button">Funkció választása →</a>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container" data-i18n="footer">Travel AI Platform · HU/EN</div>
+  </footer>
+
+  <script>
+    (function () {
+      "use strict";
+
+      const API_ENDPOINT = "/api/travel-ai/start";
+      const STORAGE_KEY = "travelAiLang";
+
+      const translations = {
+        hu: {
+          "nav.quick": "Gyorsindítók", "nav.features": "Funkciók",
+          "hero.eyebrow": "AI travel assistant · repülés · szállás · programok · üzlet",
+          "hero.title": "Okos utazástervezés egy helyen",
+          "hero.lead": "Válassz egy utazási célt, add meg a szükséges adatokat, és az AI segít repülőjegyek, szállások, költségek, programok, üzleti utak, biztonsági kérdések és hosszabb utazások megtervezésében.",
+          "hero.primary": "Funkciók megtekintése →", "hero.secondary": "Hogyan működik?",
+          "panel.card1.title": "Repülőjegyár-előrejelzés", "panel.card1.text": "Nézd meg, várhatóan merre mozognak az árak, és mikor érdemes foglalni.",
+          "panel.card2.title": "Szállás és környék ajánló", "panel.card2.text": "Találj jó ár-érték arányú szállásokat, rugalmas foglalást és jó közlekedésű városrészeket.",
+          "panel.card3.title": "Programok, üzleti utak és biztonság", "panel.card3.text": "Kérj útitervet, költségtervet, üzleti utazási segítséget vagy digitális biztonsági javaslatot.",
+          "panel.metric1": "kategória", "panel.metric2": "funkció", "panel.metric3": "nyelv",
+          "quick.title": "Gyorsindítók", "quick.lead": "Kezdd a leggyakoribb utazási feladatokkal.",
+          "quick.flight.title": "Olcsóbb repülési lehetőségek", "quick.flight.text": "Alternatív útvonalak, közeli repterek, kevésbé ismert légitársaságok és foglalási tippek.",
+          "quick.stay.title": "Jó ár-érték arányú szállások", "quick.stay.text": "Szállások ár, értékelés, távolság, közlekedés és rugalmasság alapján.",
+          "quick.plan.title": "Útiterv készítése", "quick.plan.text": "Egy- vagy többnapos programtervek idő-, távolság- és költségszempontokkal.",
+          "quick.business.title": "Üzleti utazás", "quick.business.text": "Repülés, szállás, meeting helyszín, költségterv és dokumentumok egy helyen.",
+          "features.title": "Funkciók kategóriák szerint", "features.lead": "Válassz egy funkciót, és a rendszer bekéri a tervezéshez szükséges adatokat.",
+          "search.placeholder": "Keresés: repülő, hotel, budget, vízum, nomad...",
+          "filter.all": "Összes", "items": "funkció",
+          "how.title": "Hogyan működik?", "how.lead": "Válassz egy funkciót, add meg az utazási adatokat, majd kérj személyre szabott javaslatot.",
+          "how.s1.title": "Funkció választása", "how.s1.text": "Válassz repülés, szállás, költségtervezés, program vagy üzleti utazás témát.",
+          "how.s2.title": "Adatok megadása", "how.s2.text": "Add meg a várost, dátumot, költségkeretet, utazási stílust és egyéb preferenciákat.",
+          "how.s3.title": "AI javaslat", "how.s3.text": "A rendszer elkészíti a személyre szabott utazási ajánlást vagy tervet.",
+          "how.s4.title": "Mentés vagy folytatás", "how.s4.text": "Használd az eredményt útitervként, költségtervként, emlékeztetőként vagy foglalási döntéstámogatásként.",
+          "cta.title": "Kezdd el az utazástervezést", "cta.text": "Válassz egy funkciót, és pár adat megadása után személyre szabott javaslatot kapsz.", "cta.button": "Funkció választása →",
+          "footer": "Travel AI Platform · HU/EN", "start": "Indítás", "noResults": "Nincs találat a keresésre.", "selected": "A funkció kiválasztva. A folytatáshoz add meg az adatokat."
+        },
+        en: {
+          "nav.quick": "Quick Actions", "nav.features": "Features",
+          "hero.eyebrow": "AI travel assistant · flights · stays · itineraries · business",
+          "hero.title": "Smarter trip planning in one place",
+          "hero.lead": "Choose a travel goal, provide the required details and let the AI help with flights, accommodation, budgets, itineraries, business travel, security and longer trips.",
+          "hero.primary": "View features →", "hero.secondary": "How it works",
+          "panel.card1.title": "Airfare forecast", "panel.card1.text": "See how flight prices may move and when it may be worth booking.",
+          "panel.card2.title": "Stays and neighborhoods", "panel.card2.text": "Find good-value stays, flexible booking options and neighborhoods with useful transport links.",
+          "panel.card3.title": "Itineraries, business trips and security", "panel.card3.text": "Get trip plans, budget plans, business travel help or digital security guidance.",
+          "panel.metric1": "categories", "panel.metric2": "features", "panel.metric3": "languages",
+          "quick.title": "Quick Actions", "quick.lead": "Start with the most common travel tasks.",
+          "quick.flight.title": "Cheaper flight options", "quick.flight.text": "Alternative routes, nearby airports, less visible airlines and booking tips.",
+          "quick.stay.title": "Good-value accommodations", "quick.stay.text": "Stays ranked by price, rating, distance, transport and flexibility.",
+          "quick.plan.title": "Create an itinerary", "quick.plan.text": "One-day or multi-day plans with timing, distance and cost considerations.",
+          "quick.business.title": "Business travel", "quick.business.text": "Flights, stays, meeting venues, budget planning and documents in one place.",
+          "features.title": "Features by category", "features.lead": "Choose a feature and the system will ask for the details needed to plan your trip.",
+          "search.placeholder": "Search: flight, hotel, budget, visa, nomad...",
+          "filter.all": "All", "items": "features",
+          "how.title": "How it works", "how.lead": "Choose a feature, enter your travel details and get a personalized recommendation.",
+          "how.s1.title": "Choose a feature", "how.s1.text": "Select a topic such as flights, stays, budgets, itineraries or business travel.",
+          "how.s2.title": "Add details", "how.s2.text": "Enter the city, dates, budget, travel style and other preferences.",
+          "how.s3.title": "Get AI suggestions", "how.s3.text": "The system creates a personalized travel recommendation or plan.",
+          "how.s4.title": "Save or continue", "how.s4.text": "Use the result as an itinerary, budget plan, reminder or booking decision aid.",
+          "cta.title": "Start planning your trip", "cta.text": "Choose a feature, provide a few details and receive a personalized recommendation.", "cta.button": "Choose feature →",
+          "footer": "Travel AI Platform · HU/EN", "start": "Start", "noResults": "No matching features found.", "selected": "Feature selected. Continue by adding your details."
+        }
+      };
+
+      const categories = [
+        { id: "flights", icon: "🛫", hu: "Repülés", en: "Flights" },
+        { id: "stay", icon: "🏨", hu: "Szállás", en: "Accommodation" },
+        { id: "budget", icon: "💰", hu: "Költségtervezés", en: "Budget" },
+        { id: "planner", icon: "🗺️", hu: "Útiterv", en: "Itinerary" },
+        { id: "local", icon: "🔎", hu: "Helyi élmények", en: "Local discovery" },
+        { id: "business", icon: "💼", hu: "Üzleti utazás", en: "Business travel" },
+        { id: "security", icon: "🔐", hu: "Biztonság", en: "Security" },
+        { id: "eco", icon: "🌱", hu: "Fenntartható utazás", en: "Sustainable travel" },
+        { id: "nomad", icon: "🌍", hu: "Digital nomad", en: "Digital nomad" }
+      ];
+
+      const features = [
+        { functionName: "forecast_airfare_trends_60_days", cat: "flights", title: { hu: "Repülőjegyár-előrejelzés 60 napra", en: "60-day airfare forecast" }, desc: { hu: "Adott útvonalon előrejelzi a következő 60 nap repülőjegyár-trendjét: irány, becsült mérték, biztonsági szint és konkrét foglalási javaslatok.", en: "Forecast airfare trends for the next 60 days on a given route, with direction, magnitude, confidence and booking actions." }, tags: ["forecast", "booking"] },
+        { functionName: "recommend_best_flight_booking_time", cat: "flights", title: { hu: "Legjobb foglalási nap és napszak", en: "Best weekday and time to book" }, desc: { hu: "Javaslatot ad arra, melyik hétköznapon és napszakban érdemes repülőjegyet foglalni, foglalási ablakkal és indokolt biztonsági szinttel.", en: "Recommend the best weekday and time of day to book flights for a destination, with booking windows and justified confidence." }, tags: ["timing", "confidence"] },
+        { functionName: "analyze_airline_pricing_trends", cat: "flights", title: { hu: "Légitársasági ártrend-elemzés", en: "Airline pricing trend analysis" }, desc: { hu: "Elemzi egy adott útvonal légitársasági ártrendjeit, majd gyakorlati foglalási ajánlásokat ad.", en: "Analyze airline pricing trends for a given route and provide practical booking recommendations." }, tags: ["analytics", "route"] },
+        { functionName: "list_low_aggregator_presence_airlines", cat: "flights", title: { hu: "Kevésbé látható légitársaságok", en: "Low-aggregator airline discovery" }, desc: { hu: "Listázza azokat a légitársaságokat, amelyek kevésbé jelennek meg aggregátorokon, direkt foglalási linkekkel és utazói tippekkel.", en: "List airlines with limited aggregator presence between two cities, with direct booking links, verification and traveler tips." }, tags: ["direct booking", "tips"] },
+        { functionName: "generate_airfare_price_watch_ics", cat: "flights", title: { hu: "Repülőjegyár-figyelő naptár", en: "Airfare price-watch calendar" }, desc: { hu: "Google Calendar-kompatibilis .ics emlékeztetőt készít heti árfigyeléshez és szezonális figyelmeztetésekhez.", en: "Generate a Google Calendar-importable .ics for weekly airfare price-watch reminders and seasonal alerts." }, tags: ["calendar", ".ics"] },
+        { functionName: "recommend_business_flight_routes", cat: "flights", title: { hu: "Üzleti repülési útvonalak", en: "Business flight routes" }, desc: { hu: "Üzleti utazóknak ajánl útvonalakat direkt járatok, menetrend, komfort és megbízhatóság alapján.", en: "Recommend optimal flight routes for business travelers, focusing on direct flights, schedule, comfort and reliability." }, tags: ["business", "comfort"] },
+        { functionName: "identify_local_airlines_discounts_promo_codes", cat: "flights", title: { hu: "Helyi légitársaságok és akciók", en: "Local airlines and deals" }, desc: { hu: "Helyi légitársaságokat, szezonális kedvezményeket és promo kódokat keres linkekkel és foglalási megjegyzésekkel.", en: "Identify local airlines, seasonal discounts and promo codes, with links, booking notes and traveler tips." }, tags: ["deals", "regional"] },
+        { functionName: "find_cost_optimized_alternative_routes", cat: "flights", title: { hu: "Költségoptimalizált alternatív útvonalak", en: "Cost-optimized alternative routes" }, desc: { hu: "Stopoverekkel vagy közeli repterekkel keres olcsóbb útvonalakat, teljes door-to-door költségbecsléssel és kockázatokkal.", en: "Find cost-optimized alternative routes using stopovers or nearby airports, including door-to-door costs and risks." }, tags: ["optimization", "risk"] },
+
+        { functionName: "recommend_cheaper_neighborhoods_good_transport", cat: "stay", title: { hu: "Olcsóbb, jól közlekedő városrészek", en: "Cheaper neighborhoods with good transit" }, desc: { hu: "Három olcsóbb, jó közlekedésű környéket ajánl előnyökkel és szálláslinkekkel.", en: "Recommend 3 cheaper neighborhoods in a city with good transport links, advantages and accommodation links." }, tags: ["neighborhoods", "transit"] },
+        { functionName: "compare_apartment_vs_hotel_options", cat: "stay", title: { hu: "Apartman vagy hotel?", en: "Apartment or hotel?" }, desc: { hu: "Összehasonlítja az apartmanokat és hoteleket ár, értékelés, közlekedés, szolgáltatások és életkori csoport alapján.", en: "Compare apartment-style lodging and hotels by price, ratings, transit, services and age group fit." }, tags: ["comparison", "age-fit"] },
+        { functionName: "find_best_value_accommodations", cat: "stay", title: { hu: "Legjobb ár-érték arányú szállások", en: "Best value-for-money stays" }, desc: { hu: "Szállásokat keres ár, értékelés, távolság és foglalási link alapján, életkori csoportra szabva.", en: "Find best value-for-money accommodations with price, rating, distance and booking links, tailored to an age group." }, tags: ["value", "booking"] },
+        { functionName: "recommend_flexible_booking_accommodations", cat: "stay", title: { hu: "Rugalmasan foglalható szállások", en: "Flexible booking accommodations" }, desc: { hu: "Olyan szállásokat ajánl, amelyek free cancellation vagy flexible booking opciót adnak.", en: "Recommend accommodations with free cancellation or flexible booking, including price, rating, distance and links." }, tags: ["flexible", "cancellation"] },
+        { functionName: "recommend_optimal_accommodation_lead_time", cat: "stay", title: { hu: "Mikor érdemes szállást foglalni?", en: "Best time to book accommodation" }, desc: { hu: "Megbecsüli, milyen előre érdemes szállást foglalni szezonalitás és foglalási mintázatok alapján.", en: "Recommend the optimal lead time for booking accommodation, considering seasonality and booking patterns." }, tags: ["timing", "seasonality"] },
+        { functionName: "find_business_suitable_hotels", cat: "business", title: { hu: "Üzleti szállodák", en: "Business-suitable hotels" }, desc: { hu: "Üzleti szállodákat keres erős Wi‑Fi-vel, korai check-innel, lounge-dzsal és meeting roommal.", en: "Find business-suitable hotels with strong Wi-Fi, early check-in, lounge and meeting rooms." }, tags: ["hotel", "business"] },
+
+        { functionName: "create_travel_cost_tracking_sheet", cat: "budget", title: { hu: "Utazási költségkövető táblázat", en: "Travel cost-tracking sheet" }, desc: { hu: "Frissíthető költségkövető táblát készít automatikus remaining budget mezővel és Excel/Sheets képletekkel.", en: "Create a continuously updatable travel cost-tracking sheet with remaining budget and Excel/Sheets formulas." }, tags: ["sheet", "formulas"] },
+        { functionName: "create_7_day_cost_optimized_travel_plan", cat: "budget", title: { hu: "7 napos költségoptimalizált terv", en: "7-day cost-optimized travel plan" }, desc: { hu: "Adott célállomásra és költségkeretre 7 napos tervet készít repüléssel, szállással és közlekedéssel.", en: "Create a 7-day cost-optimized plan with flights, accommodation and transportation." }, tags: ["budget", "7 days"] },
+        { functionName: "plan_business_trip_budget_expense_report", cat: "budget", title: { hu: "Üzleti út költségterv", en: "Business trip budget and expense report" }, desc: { hu: "Üzleti költségtervet és expense report sablont készít futó összesítésekkel, per-diem ellenőrzésekkel és képletekkel.", en: "Plan a business trip budget and produce an expense report template with totals, per-diem checks and formulas." }, tags: ["expense", "per-diem"] },
+
+        { functionName: "recommend_three_one_day_trips", cat: "planner", title: { hu: "3 egynapos kirándulás", en: "Three one-day trips" }, desc: { hu: "Három egynapos kirándulást ajánl távolsággal, közlekedéssel, becsült költséggel és attrakció linkekkel.", en: "Recommend 3 one-day trips with distance, transport, estimated cost and attraction links." }, tags: ["day trip", "transport"] },
+        { functionName: "create_one_day_food_tour", cat: "planner", title: { hu: "1 napos food tour", en: "One-day food tour" }, desc: { hu: "Egy napos gasztrotúrát készít budget, mid-range és premium megállókkal.", en: "Create a 1-day food tour with budget, mid-range and premium stops." }, tags: ["food", "city"] },
+        { functionName: "create_three_day_themed_itinerary", cat: "planner", title: { hu: "3 napos tematikus útiterv", en: "Three-day themed itinerary" }, desc: { hu: "Háromnapos tematikus programtervet készít aktivitásokkal, időzítéssel és távolságokkal.", en: "Create a 3-day themed itinerary with activities, timing and distances." }, tags: ["itinerary", "theme"] },
+        { functionName: "recommend_top_10_attractions_activities", cat: "planner", title: { hu: "Top 10 látnivaló és program", en: "Top 10 attractions and activities" }, desc: { hu: "Top 10 látnivalót és programot listáz leírással, nyitvatartással, belépőárakkal és linkekkel.", en: "Recommend top 10 attractions and activities with descriptions, opening hours, entry prices and links." }, tags: ["attractions", "links"] },
+        { functionName: "create_one_day_min_travel_time_itinerary", cat: "planner", title: { hu: "1 napos útvonal kevés utazással", en: "One-day route with minimal travel time" }, desc: { hu: "Egy napos programtervet készít minimális utazási idővel és Google Maps útvonalakkal.", en: "Create a 1-day itinerary minimizing travel time with Google Maps routes." }, tags: ["maps", "routing"] },
+        { functionName: "create_two_day_business_trip_schedule", cat: "business", title: { hu: "2 napos üzleti út ütemezése", en: "Two-day business trip schedule" }, desc: { hu: "Kétnapos üzleti programot készít meeting blokkokkal, közlekedéssel, étkezéssel és buffer időkkel.", en: "Create a 2-day business trip schedule with meetings, transport, dining and buffer periods." }, tags: ["schedule", "buffers"] },
+
+        { functionName: "list_city_events_and_festivals", cat: "local", title: { hu: "Események és fesztiválok", en: "Events and festivals" }, desc: { hu: "Két dátum között listázza egy város főbb eseményeit és fesztiváljait dátummal, árral és linkkel.", en: "List major events and festivals in a city between two dates, with date, price and link." }, tags: ["events", "dates"] },
+        { functionName: "recommend_five_hidden_gems", cat: "local", title: { hu: "5 hidden gem", en: "Five hidden gems" }, desc: { hu: "Öt kevésbé ismert, értékes helyet ajánl leírással és térkép/website linkekkel.", en: "Recommend 5 hidden gems with descriptions and map/website links." }, tags: ["hidden gems", "maps"] },
+        { functionName: "search_local_custom_tour_operators", cat: "local", title: { hu: "Helyi tour operátorok", en: "Local tour operators" }, desc: { hu: "2–3 helyi tour operátort keres testreszabott programokhoz linkekkel és traveler fit értékeléssel.", en: "Search for 2–3 local tour operators offering customized programs, with links and traveler fit." }, tags: ["operators", "custom"] },
+        { functionName: "recommend_local_tour_operator_platforms", cat: "local", title: { hu: "Tour operátor kereső platformok", en: "Platforms for local tour operators" }, desc: { hu: "Platformokat és közösségi tereket ajánl helyi tour operátorok kereséséhez, keresési tippekkel.", en: "Recommend platforms and community spaces to find local tour operators, with search tips." }, tags: ["community", "search"] },
+        { functionName: "provide_tour_operator_evaluation_checklist", cat: "local", title: { hu: "Tour operátor értékelési checklist", en: "Tour operator evaluation checklist" }, desc: { hu: "Checklistet ad review-k, jogi feltételek, kommunikáció és reputáció ellenőrzéséhez.", en: "Provide a checklist for evaluating tour operators, including reviews, legal terms, communication and reputation." }, tags: ["checklist", "risk"] },
+
+        { functionName: "list_coworking_business_meeting_venues", cat: "business", title: { hu: "Coworking és meeting helyszínek", en: "Coworking and meeting venues" }, desc: { hu: "Coworking tereket, business centereket és meeting helyszíneket listáz árral, elérhetőséggel és linkekkel.", en: "List coworking spaces, business centers and meeting venues with price, availability and links." }, tags: ["coworking", "venues"] },
+        { functionName: "list_business_travel_documents_compliance", cat: "business", title: { hu: "Üzleti utazási dokumentumok", en: "Business travel documents" }, desc: { hu: "Célországra listázza a szükséges dokumentumokat: vízum, biztosítás, invitation, belépési szabályok és hivatalos linkek.", en: "List required business travel documents and compliance obligations, including visa, insurance, invitation, entry rules and official links." }, tags: ["visa", "official"] },
+
+        { functionName: "provide_business_travel_digital_security_recommendations", cat: "security", title: { hu: "Digitális biztonság üzleti utazóknak", en: "Digital security for business travelers" }, desc: { hu: "VPN, biztonságos hálózatok, eszközprotokollok, adatvédelem és jogi megjegyzések üzleti utazóknak.", en: "Provide digital security and data protection recommendations for business travelers, including VPN, secure networks, device protocols and legal notes." }, tags: ["VPN", "data"] },
+        { functionName: "provide_secure_internet_travel_guide", cat: "security", title: { hu: "Biztonságos internet utazás közben", en: "Secure internet while traveling" }, desc: { hu: "Útmutató eSIM/SIM opciókhoz, VPN-hez és utazás közbeni cybersecurity tippekhez.", en: "Provide a detailed guide on secure internet use while traveling, including eSIM/SIM, VPN and cybersecurity tips." }, tags: ["eSIM", "cybersecurity"] },
+
+        { functionName: "provide_eco_friendly_travel_recommendations", cat: "eco", title: { hu: "Fenntartható utazási ajánlások", en: "Eco-friendly travel recommendations" }, desc: { hu: "Fenntartható közlekedést, szállásokat és helyi kezdeményezéseket ajánl célállomás alapján.", en: "Provide eco-friendly and sustainable travel recommendations, including transport, accommodations and local initiatives." }, tags: ["eco", "local"] },
+
+        { functionName: "plan_slow_travel_digital_nomad_route", cat: "nomad", title: { hu: "2–3 hónapos slow travel útvonal", en: "2–3 month slow-travel route" }, desc: { hu: "Hosszabb slow-travel vagy digital nomad útvonalat tervez szezonális logikával, költségekkel, vízummal, közlekedéssel, biztonsággal és healthcare szempontokkal.", en: "Plan a flexible 2–3 month slow-travel or digital-nomad route with seasonal logic, costs, visas, transport, safety and healthcare notes." }, tags: ["nomad", "long-term"] }
+      ];
+
+      const state = {
+        currentLang: safeGetStoredLanguage(),
+        activeFilter: "all"
+      };
+
+      function safeGetStoredLanguage() {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          return saved === "en" || saved === "hu" ? saved : "hu";
+        } catch (_) {
+          return "hu";
+        }
+      }
+
+      function safeSetStoredLanguage(lang) {
+        try { localStorage.setItem(STORAGE_KEY, lang); } catch (_) {}
+      }
+
+      function byId(id) {
+        return document.getElementById(id);
+      }
+
+      function t(key) {
+        return translations[state.currentLang][key] || key;
+      }
+
+      function categoryById(id) {
+        return categories.find(category => category.id === id);
+      }
+
+      function applyLanguage() {
+        document.documentElement.dataset.lang = state.currentLang;
+        document.documentElement.lang = state.currentLang;
+
+        document.querySelectorAll("[data-i18n]").forEach(element => {
+          element.textContent = t(element.dataset.i18n);
+        });
+
+        document.querySelectorAll("[data-i18n-placeholder]").forEach(element => {
+          element.placeholder = t(element.dataset.i18nPlaceholder);
+        });
+
+        renderFilters();
+        renderFeatures();
+      }
+
+      function renderFilters() {
+        const root = byId("filters");
+        if (!root) return;
+
+        const filterItems = [
+          { id: "all", label: t("filter.all") },
+          ...categories.map(category => ({ id: category.id, label: `${category.icon} ${category[state.currentLang]}` }))
+        ];
+
+        root.innerHTML = filterItems.map(item => `
+          <button type="button" class="chip ${state.activeFilter === item.id ? "active" : ""}" data-filter="${escapeHtml(item.id)}">
+            ${escapeHtml(item.label)}
+          </button>
+        `).join("");
+
+        root.querySelectorAll("button[data-filter]").forEach(button => {
+          button.addEventListener("click", () => {
+            state.activeFilter = button.dataset.filter || "all";
+            renderFilters();
+            renderFeatures();
+          });
+        });
+      }
+
+      function renderFeatures() {
+        const root = byId("featureRoot");
+        const searchInput = byId("searchInput");
+        if (!root || !searchInput) return;
+
+        const query = searchInput.value.trim().toLowerCase();
+        const visibleFeatures = features.filter(feature => {
+          const category = categoryById(feature.cat);
+          if (!category) return false;
+
+          const haystack = [
+            feature.title[state.currentLang],
+            feature.desc[state.currentLang],
+            category[state.currentLang],
+            feature.functionName,
+            ...feature.tags
+          ].join(" ").toLowerCase();
+
+          const matchesFilter = state.activeFilter === "all" || feature.cat === state.activeFilter;
+          const matchesSearch = !query || haystack.includes(query);
+          return matchesFilter && matchesSearch;
+        });
+
+        const grouped = categories
+          .map(category => ({ category, items: visibleFeatures.filter(feature => feature.cat === category.id) }))
+          .filter(group => group.items.length > 0);
+
+        root.innerHTML = grouped.length
+          ? grouped.map(renderCategoryGroup).join("")
+          : `<div class="empty-state">${escapeHtml(t("noResults"))}</div>`;
+
+        root.querySelectorAll("button[data-function-name]").forEach(button => {
+          button.addEventListener("click", () => startTravelFunction(button.dataset.functionName));
+        });
+      }
+
+      function renderCategoryGroup(group) {
+        return `
+          <section class="category-block" data-category="${escapeHtml(group.category.id)}">
+            <div class="category-title">
+              <div class="label"><span>${escapeHtml(group.category.icon)}</span><h3>${escapeHtml(group.category[state.currentLang])}</h3></div>
+              <small>${group.items.length} ${escapeHtml(t("items"))}</small>
+            </div>
+            <div class="feature-grid">
+              ${group.items.map(renderFeatureCard).join("")}
+            </div>
+          </section>
+        `;
+      }
+
+      function renderFeatureCard(feature) {
+        const category = categoryById(feature.cat);
+        const categoryLabel = category ? category[state.currentLang] : "";
+        return `
+          <article class="feature-card">
+            <div class="feature-meta">
+              <span class="tag">${escapeHtml(categoryLabel)}</span>
+            </div>
+            <h3>${escapeHtml(feature.title[state.currentLang])}</h3>
+            <p>${escapeHtml(feature.desc[state.currentLang])}</p>
+            <div class="feature-foot">${feature.tags.map(tag => `<span class="pill">${escapeHtml(tag)}</span>`).join("")}</div>
+            <div class="feature-action">
+              <button type="button" class="start-btn" data-function-name="${escapeHtml(feature.functionName)}">${escapeHtml(t("start"))}</button>
+            </div>
+          </article>
+        `;
+      }
+
+      function showToast(message) {
+        let toast = document.querySelector(".toast");
+        if (!toast) {
+          toast = document.createElement("div");
+          toast.className = "toast";
+          document.body.appendChild(toast);
+        }
+        toast.textContent = message;
+        toast.classList.add("show");
+        window.clearTimeout(showToast.timer);
+        showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2800);
+      }
+
+      async function startTravelFunction(functionName) {
+        if (!functionName) return;
+
+        const selected = features.find(feature => feature.functionName === functionName);
+        const payload = {
+          functionName,
+          language: state.currentLang,
+          title: selected ? selected.title[state.currentLang] : functionName,
+          category: selected ? selected.cat : null
+        };
+
+        window.dispatchEvent(new CustomEvent("travel-ai:function-selected", { detail: payload }));
+
+        try {
+          const response = await fetch(API_ENDPOINT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const result = await response.json().catch(() => ({}));
+
+          if (result.redirectUrl) {
+            window.location.href = result.redirectUrl;
+            return;
+          }
+
+          showToast(t("selected"));
+        } catch (error) {
+          console.warn("Travel AI start request failed:", error);
+          showToast(t("selected"));
+        }
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function bindEvents() {
+        document.querySelectorAll("[data-set-lang]").forEach(button => {
+          button.addEventListener("click", () => {
+            const nextLang = button.dataset.setLang;
+            if (nextLang !== "hu" && nextLang !== "en") return;
+            state.currentLang = nextLang;
+            safeSetStoredLanguage(nextLang);
+            applyLanguage();
+          });
+        });
+
+        const searchInput = byId("searchInput");
+        if (searchInput) searchInput.addEventListener("input", renderFeatures);
+      }
+
+      function runSmokeTests() {
+        console.assert(Boolean(byId("filters")), "Expected #filters to exist");
+        console.assert(Boolean(byId("featureRoot")), "Expected #featureRoot to exist");
+        console.assert(Boolean(byId("searchInput")), "Expected #searchInput to exist");
+        console.assert(features.length === 34, `Expected 34 features, got ${features.length}`);
+        console.assert(features.every(feature => typeof feature.functionName === "string" && feature.functionName.length > 0), "Every feature must have a functionName");
+        console.assert(new Set(features.map(feature => feature.functionName)).size === features.length, "functionName values must be unique");
+        console.assert(features.every(feature => categoryById(feature.cat)), "Every feature must reference an existing category");
+        console.assert(!document.body.textContent.toLowerCase().includes("production-ready"), "Public UI must not contain production-ready wording");
+      }
+
+      function init() {
+        bindEvents();
+        applyLanguage();
+        runSmokeTests();
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init, { once: true });
+      } else {
+        init();
+      }
+    })();
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,97 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: ${PG_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - auth-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    networks:
+      - auth-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  auth:
+    image: ${AUTH_IMAGE:?Set AUTH_IMAGE in ../.env to the published auth image}
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      CSRF_KEY: ${CSRF_KEY}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME}
+      CSRF_COOKIE_NAME: ${CSRF_COOKIE_NAME}
+      SESSION_TIMEOUT_MINUTES: ${SESSION_TIMEOUT_MINUTES}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN}
+      COOKIE_SECURE: ${COOKIE_SECURE}
+      APP_HOST: ${APP_HOST}
+      APPLICATIONS_JSON: ${APPLICATIONS_JSON}
+      ADMIN_USERNAMES: ${ADMIN_USERNAMES}
+      DATABASE_URL: postgresql+psycopg2://${PG_USER}:${PG_PASSWORD}@db:5432/${PG_DB}
+      REDIS_URL: redis://redis:6379/0
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_STARTTLS: ${SMTP_STARTTLS}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8100:8000"
+    networks:
+      - auth-internal
+      - auth-egress
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8-alpine
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL}
+      AUTH_DOMAIN: ${AUTH_DOMAIN}
+      AI_DASHBOARD_DOMAIN: ${AI_DASHBOARD_DOMAIN}
+      CHAT_HARNESS_DOMAIN: ${CHAT_HARNESS_DOMAIN}
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      auth:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy-data:
+  caddy-config:
+
+networks:
+  auth-internal:
+    internal: true
+  auth-egress:
