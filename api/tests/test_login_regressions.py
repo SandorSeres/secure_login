@@ -3,6 +3,7 @@
 Runs with a disposable SQLite connection and mocked external Redis/email services.
 """
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -17,7 +18,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.deps import get_db, current_user
 from app.models import User
-from app.security import issue_csrf
 import app.main as main
 
 class FakeQuery:
@@ -55,8 +55,12 @@ def client(monkeypatch):
 
 def test_login_profile_logout(client):
     http, db, _ = client
-    csrf = issue_csrf()
-    http.cookies.set("csrf_token", csrf, domain="testserver")
+    login_page = http.get("/")
+    assert login_page.status_code == 200
+    match = re.search(r'name="csrf_token" value="([^"]+)"', login_page.text)
+    assert match, "Login form did not render a CSRF token"
+    csrf = match.group(1)
+    assert http.cookies.get("csrf_token") == csrf
     result = http.post("/auth/login",
                        data={"username":"regression","password":"correct","csrf_token":csrf},
                        follow_redirects=False)
