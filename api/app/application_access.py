@@ -10,11 +10,12 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, Session
 from .models import Base, User
-from .deps import get_db
+from .deps import get_db, current_user
 
 APP_KEY = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 ROLE_VALUES = {"viewer", "member", "owner", "admin"}
@@ -131,3 +132,23 @@ def set_enabled(instance_key: str, enabled: bool, db: Session = Depends(get_db))
     item.enabled = enabled
     db.commit()
     return {"instance_key": item.instance_key, "enabled": item.enabled}
+
+# Browser session-based authorization. Intended only for Nginx auth_request.
+# Crucially: never trust user-supplied identity headers or a user_id query string.
+gateway_router = APIRouter(prefix="/iam/gateway", tags=["application-access"])
+
+@gateway_router.get("/authorize/{instance_key}")
+def authorize_instance(instance_key: str, user: User = Depends(current_user),
+                       db: Session = Depends(get_db)):
+    """Return 204 for an active grant, 403 otherwise. Unauthenticated -> 401."""
+    allowed = db.query(UserInstanceGrant.id).join(
+        ApplicationInstance, ApplicationInstance.id == UserInstanceGrant.instance_id
+    ).filter(
+        ApplicationInstance.instance_key == instance_key,
+        ApplicationInstance.enabled.is_(True),
+        UserInstanceGrant.user_id == user.id,
+        UserInstanceGrant.enabled.is_(True)
+    ).first() is not None
+    if not allowed:
+        raise HTTPException(403, "Application access denied")
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
