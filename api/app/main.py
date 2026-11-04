@@ -12,12 +12,13 @@ from urllib.parse import quote
 from starlette.responses import Response as StarletteResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy.orm import Session as SASession
+from sqlalchemy.exc import IntegrityError
 from pydantic import ValidationError
 from urllib.parse import quote, unquote
 
 from .config import settings
 from .models import Base, engine, SessionLocal, User
-from .application_access import router as application_access_router  # registers additive IAM tables
+from .application_access import router as application_access_router, require_service  # gated IAM
 from .schemas import RegisterIn, ResetPasswordIn
 from .security import (
     hash_password,
@@ -215,11 +216,11 @@ async def profile(request: Request, user: User = Depends(current_user)):
     html = templates.get_template("profile.html").render(
         title="Profil",
         username=user.username,
-        csrf_token=csrf,
+        csrf_token=csrf_token,
         account_level=getattr(user, "account_level", "Free")
     )
     resp = HTMLResponse(html)
-    set_csrf_cookie(resp, csrf, 3600)
+    set_csrf_cookie(resp, csrf_token, 3600)
     return resp
 
 
@@ -289,11 +290,11 @@ async def reset_password_page(request: Request, token: str):
     csrf_token = request.cookies.get(settings.CSRF_COOKIE_NAME) or issue_csrf()
     html = templates.get_template("reset_password.html").render(
         title="Új jelszó megadása",
-        csrf_token=csrf,
+        csrf_token=csrf_token,
         token=token
     )
     resp = HTMLResponse(html)
-    set_csrf_cookie(resp, csrf, 3600)
+    set_csrf_cookie(resp, csrf_token, 3600)
     return resp
 
 
@@ -342,9 +343,9 @@ async def reset_password(request: Request, db: SASession = Depends(get_db)):
     return resp
 
 
-# Egyszerű admin endpoint az account szint állítására (védd le később!)
+# Account szint módosítása csak belső, hitelesített szolgáltatás számára.
 @app.post("/admin/set_level")
-async def set_level(username: str, level: str, db: SASession = Depends(get_db)):
+async def set_level(username: str, level: str, db: SASession = Depends(get_db), _: None = Depends(require_service)):
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
