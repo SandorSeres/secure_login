@@ -18,7 +18,7 @@ from urllib.parse import quote, unquote
 
 from .config import settings
 from .models import Base, engine, SessionLocal, User
-from .application_access import router as application_access_router, require_service  # gated IAM
+from .application_access import router as application_access_router, gateway_router, require_service  # gated IAM
 from .schemas import RegisterIn, ResetPasswordIn
 from .security import (
     hash_password,
@@ -44,6 +44,7 @@ templates = Environment(
 # Adatbázis init
 Base.metadata.create_all(bind=engine)
 app.include_router(application_access_router)
+app.include_router(gateway_router)
 
 
 # Rate limit middleware (dekorátorok intézik a limiteket, itt csak továbbengedünk)
