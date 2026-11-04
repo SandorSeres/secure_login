@@ -56,7 +56,7 @@ def client(monkeypatch):
 def test_login_profile_logout(client):
     http, db, _ = client
     csrf = issue_csrf()
-    http.cookies.set("csrf_token", csrf, domain="testserver", secure=True)
+    http.cookies.set("csrf_token", csrf, domain="testserver")
     result = http.post("/auth/login",
                        data={"username":"regression","password":"correct","csrf_token":csrf},
                        follow_redirects=False)
