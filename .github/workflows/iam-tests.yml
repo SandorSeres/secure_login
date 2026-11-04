@@ -22,4 +22,4 @@ jobs:
         run: python -m pytest -q api/tests/test_application_access.py
       - name: Login regression tests
         working-directory: api
-        run: python -m pytest -q tests/test_login_regressions.py
+        run: python -m pytest -q tests/test_login_regressions.py tests/test_gateway_authorization.py
