@@ -37,6 +37,8 @@ def portal_by_id(portal_id: str, db: Session) -> PortalConfig | None:
 def register_portal(db: Session, config: PortalConfig) -> str:
     if settings.portal_by_id(config.id) is not None:
         raise ValueError("Configured portal is not REM-managed")
+    if any(p.upstream == config.upstream for p in settings.PORTALS_JSON):
+        raise ValueError("Upstream belongs to a configured portal")
     existing = db.get(Portal, config.id)
     managed = db.get(ManagedPortal, config.id)
     if existing is not None and managed is None:
