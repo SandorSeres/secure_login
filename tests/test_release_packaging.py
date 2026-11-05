@@ -37,10 +37,15 @@ class ReleaseSafetyTests(unittest.TestCase):
             failures = check(pathlib.Path(folder))
             self.assertTrue(failures)
 
-    def test_current_source_is_not_yet_rem_compatible(self):
+    def test_contract_is_checked_instead_of_assumed(self):
+        # Before source recovery, the original public tree is incomplete.
+        # After import, the source is required to expose the static markers.
         failures = check(ROOT)
-        self.assertTrue(any("PORTALS_JSON" in problem for problem in failures))
-        self.assertTrue(any("/auth/resolve" in problem for problem in failures))
+        recovered = (ROOT / "api/app/authorization.py").is_file()
+        if recovered:
+            self.assertEqual(failures, [])
+        else:
+            self.assertTrue(failures)
 
     def test_bad_versions_do_not_run_build(self):
         for args in ([], ["--version", "latest"], ["--version", "v0.1.0", "--namespace", "bad/name"]):
