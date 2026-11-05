@@ -111,7 +111,11 @@ tartalmából épít; a helyi, nem commitolt fájlokat nem használja.
 Az image neve `sseres/secure-login:sha-<TELJES_COMMIT_SHA>`.
 
 ```bash
-cd /Data/containers/secure_login
+cd /Data/containers
+# A futó /Data/containers/secure-login telepítési könyvtárhoz NE nyúlj.
+# A forráskód legyen külön checkoutban:
+git clone https://github.com/SandorSeres/secure_login.git secure-login-src
+cd secure-login-src
 git fetch origin main
 git switch main
 git pull --ff-only
