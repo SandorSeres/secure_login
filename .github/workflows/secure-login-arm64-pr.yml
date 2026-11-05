@@ -1,0 +1,39 @@
+name: Secure Login ARM64 build candidate (no publish)
+
+on:
+  pull_request:
+    paths:
+      - api/**
+      - scripts/**
+      - tests/**
+      - .github/workflows/secure-login-arm64-pr.yml
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build Secure Login API for Linux ARM64 without pushing
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          platforms: linux/arm64
+          push: false
+          tags: secure-login-pr-arm64:check
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Source safety tests (no credentials or runtime deployment)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/build_upload.sh
+          python -m compileall -q scripts tests
+          python -m unittest discover -s tests -v
