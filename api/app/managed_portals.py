@@ -54,6 +54,9 @@ def register_portal(db: Session, config: PortalConfig) -> str:
         return "already-registered"
     sort_order = len(settings.PORTALS_JSON) + db.query(ManagedPortal).count()
     db.add(Portal(id=config.id, name=config.name, enabled=config.enabled, sort_order=sort_order))
+    # Flush the FK parent before inserting the managed metadata. ORM models
+    # have no relationship() edge, so SQLAlchemy cannot infer their order.
+    db.flush()
     db.add(ManagedPortal(id=config.id, description=config.description,
                          url=str(config.url), upstream=config.upstream))
     db.commit()
