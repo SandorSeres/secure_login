@@ -1,0 +1,121 @@
+name: Secure Login ARM64 Docker Hub candidate release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Explicitly publish an ARM64 candidate to Docker Hub"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: secure-login-arm64-release-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: ${{ inputs.publish && 'dockerhub-publish' || 'release-build-only' }}
+    env:
+      IMAGE_NAMESPACE: ${{ vars.REM_IMAGE_NAMESPACE || 'sseres' }}
+      PUBLISH_ALLOWED: ${{ vars.DOCKERHUB_PUBLISH_ENABLED || 'false' }}
+    steps:
+      - name: Validate manual release authorization
+        shell: bash
+        env:
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_NAMESPACE" =~ ^[a-z0-9]+([._-][a-z0-9]+)*$ ]] || exit 1
+          if [[ "$PUBLISH" == "true" ]]; then
+            [[ "$PUBLISH_ALLOWED" == "true" ]] || {
+              echo "::error::DOCKERHUB_PUBLISH_ENABLED must explicitly be true"; exit 1;
+            }
+            [[ "$GITHUB_REF" == "refs/heads/main" ]] || {
+              echo "::error::Publishing requires the reviewed main branch"; exit 1;
+            }
+          fi
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify exact reviewed commit ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "::error::Candidate must be merged to main"; exit 1;
+          }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fail-closed REM source compatibility gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/check_rem_contract.py --source-root .
+          bash -n scripts/build_upload.sh
+          python -m pip install --disable-pip-version-check -r api/requirements.txt
+          PYTHONPATH="$PWD/api:$PWD" python -m unittest discover -s tests -v
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to Docker Hub only for approved publication
+        if: ${{ inputs.publish }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build ARM64 Secure Login candidate
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          platforms: linux/arm64
+          push: ${{ inputs.publish }}
+          provenance: mode=max
+          sbom: true
+          tags: ${{ env.IMAGE_NAMESPACE }}/secure-login:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=Secure Login ARM64 Candidate
+      - name: Verify registry digest and publish an immutable reference artifact
+        if: ${{ inputs.publish }}
+        shell: bash
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]] || {
+            echo "::error::No valid registry digest returned"; exit 1;
+          }
+          REF="${IMAGE_NAMESPACE}/secure-login@${DIGEST}"
+          docker buildx imagetools inspect "$REF"
+          python3 - <<'PY'
+          import json, os
+          with open("secure-login-published-image.json","w",encoding="utf-8") as out:
+              json.dump({
+                  "schema_version": 1,
+                  "component": "AUTH_IMAGE",
+                  "reference": os.environ["IMAGE_NAMESPACE"] + "/secure-login@" + os.environ["DIGEST"],
+                  "git_commit": os.environ["GITHUB_SHA"],
+                  "platform": "linux/arm64",
+                  "production_approved": False,
+                  "note": "Candidate only: Caddy multi-app routing and live migration not certified",
+              }, out, indent=2)
+              out.write("\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.publish }}
+        with:
+          name: secure-login-arm64-published-reference
+          path: secure-login-published-image.json
+          retention-days: 90
+          if-no-files-found: error
