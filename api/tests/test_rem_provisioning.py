@@ -83,3 +83,13 @@ def test_disabled_mode_hides_managed_portals(db, monkeypatch):
     register_portal(db, config())
     monkeypatch.setattr(settings, "ENABLE_MULTI_PORTAL", False)
     assert portal_by_id("research-a", db) is None
+
+
+def test_configured_portal_upstream_is_reserved(db, monkeypatch):
+    other = PortalConfig(id="configured", name="Configured",
+                         url="https://configured.example/",
+                         upstream="127.0.0.1:8205")
+    monkeypatch.setattr(settings, "PORTALS_JSON", [other])
+    with pytest.raises(ValueError):
+        register_portal(db, config())
+    assert db.query(ManagedPortal).count() == 0
