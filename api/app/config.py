@@ -112,6 +112,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_ENABLED: bool = True
     # Opt-in only. Legacy 1:1 routing remains the default.
     ENABLE_MULTI_PORTAL: bool = False
+    REM_PROVISIONING_TOKEN: Optional[str] = Field(default=None, min_length=32)
 
     @field_validator("ADMIN_USERNAMES")
     @classmethod
