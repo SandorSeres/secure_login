@@ -68,3 +68,38 @@ release manifest.
 4. Confirm an explicit Docker Hub publication decision and digest inspection.
 5. Only after these gates: update REM `AUTH_IMAGE` and run a separately
    approved zero-instance installation test.
+
+## GitHub Actions: kézi ARM64 Docker Hub candidate kiadás
+
+A `.github/workflows/secure-login-arm64-release.yml` release workflow
+**csak manuálisan** indítható. A `publish` alapértéke `false`.
+A `main` aktuális, ellenőrzött commitját buildeli, amelyből az
+`sseres/secure-login:sha-<git-sha>` kandidátus image készül.
+A teljes commit SHA megőrzi a forrásazonosságot, a telepítéshez
+mindig a tényleges `@sha256:` registry digestet használd.
+
+A Secure Login GitHub-repository saját Actions-beállításai szükségesek;
+a REM repositoryban konfigurált secrets **nem osztódnak meg**
+automatikusan. A közzétételhez:
+- `REM_IMAGE_NAMESPACE=sseres` repository variable;
+- `DOCKERHUB_PUBLISH_ENABLED=true` csak engedélyezett kiadási időablakban;
+- `DOCKERHUB_USERNAME` és `DOCKERHUB_TOKEN` repository secrets;
+- `dockerhub-publish` GitHub Environment, lehetőleg required reviewerrel,
+  csak `main` branchről való publikálásra korlátozva.
+
+A `release-build-only` környezet nem publikál. Első futtatásnál
+`publish=false`, utána a teljes CI és a célrepository ellenőrzése
+után tudatosan `publish=true`.
+
+A sikeres publikálás `secure-login-published-image.json`
+artifactot ad. Ez **candidate**, nem engedélyezett éles upgrade:
+a `production_approved=false` mező szándékosan jelzi ezt.
+A többportálos Caddy útválasztás és az éles PostgreSQL migráció
+szándékosan nincs aktiválva.
+
+A Docker Hubon kézzel történő feltöltés alternatívája a
+`scripts/build_upload.sh`, amelyhez előzetesen létrehozott és
+feltöltött Git kiadási tag kell.
+
+**Publikálás után állítsd vissza**
+`DOCKERHUB_PUBLISH_ENABLED=false` értékre.
