@@ -71,12 +71,16 @@ trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/context"
 git archive "$commit" | tar -x -C "$tmp/context"
 [[ -f "$tmp/context/api/Dockerfile" ]] || {
-  echo "ERROR: tagged commit has no REM Dockerfile" >&2; exit 1;
+  echo "ERROR: tagged commit has no Secure Login API Dockerfile" >&2; exit 1;
 }
 echo "Source commit: $commit"
 echo "Image: $image"
 echo "Platform: linux/arm64"
 if [[ "$PUSH" == true ]]; then
+  # Inspect the exact tagged source, never the (possibly modified) checkout.
+  # Current public Secure Login revision is not equivalent to the production
+  # gateway/IAM contract. Publishing is blocked until the contract is present.
+  python3 "$tmp/context/scripts/check_rem_contract.py" --source-root "$tmp/context"
   echo "Publishing requested explicitly. Docker Hub credentials must already be configured."
   docker buildx build \
     --platform linux/arm64 \
