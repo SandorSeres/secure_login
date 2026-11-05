@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="title">Portálok</h1>
+<p class="msg">Belépve: <strong>{{ username }}</strong> ({{ role_name }})</p>
+
+{% if portals %}
+<div class="portal-list">
+  {% for portal in portals %}
+  <a class="portal-card" href="/portal/{{ portal.id }}">
+    <strong>{{ portal.name }}</strong>
+    {% if portal.description %}<span>{{ portal.description }}</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<p class="msg">Ehhez a felhasználóhoz még nincs portál rendelve.</p>
+{% endif %}
+
+<p><a href="/profile">Profil</a></p>
+<form method="post" action="/auth/logout">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token|default('') }}">
+  <button class="btn danger" type="submit">Kijelentkezés</button>
+</form>
+{% endblock %}
