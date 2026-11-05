@@ -40,7 +40,21 @@ jobs:
           file: ./api/Dockerfile
           platforms: linux/arm64
           push: false
+          load: true
           tags: secure-login-pr-arm64:check
+      - name: Smoke-test ARM64 Secure Login import and empty-portal bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --platform linux/arm64 \
+            -e SECRET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
+            -e CSRF_KEY=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB \
+            -e APP_HOST=https://auth.example.invalid \
+            -e DATABASE_URL=sqlite:////tmp/auth-smoke.db \
+            -e 'ROLES_JSON=[{"id":"user","name":"User","default":true}]' \
+            -e 'PORTALS_JSON=[]' \
+            --entrypoint python secure-login-pr-arm64:check \
+            -c 'from app.main import app; assert any(getattr(route,"path",None)=="/health" for route in app.routes); print("auth ARM64 import + empty-portal bootstrap OK")'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
