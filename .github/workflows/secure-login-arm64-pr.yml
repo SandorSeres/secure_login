@@ -35,5 +35,6 @@ jobs:
         run: |
           set -euo pipefail
           bash -n scripts/build_upload.sh
-          python -m compileall -q scripts tests
-          python -m unittest discover -s tests -v
+          python -m pip install --disable-pip-version-check -r api/app/requirements.txt 2>/dev/null || python -m pip install --disable-pip-version-check -r api/requirements.txt
+          python -m compileall -q api/app scripts tests
+          PYTHONPATH="$PWD/api:$PWD" python -m unittest discover -s tests -v
