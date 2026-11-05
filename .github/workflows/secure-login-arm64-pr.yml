@@ -13,6 +13,20 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: remtest
+          POSTGRES_PASSWORD: remtest
+          POSTGRES_DB: remtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U remtest -d remtest"
+          --health-interval 5s --health-timeout 3s --health-retries 15
+    env:
+      REM_TEST_PG_URL: postgresql+psycopg2://remtest:remtest@127.0.0.1:5432/remtest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,6 +49,6 @@ jobs:
         run: |
           set -euo pipefail
           bash -n scripts/build_upload.sh
-          python -m pip install --disable-pip-version-check -r api/app/requirements.txt 2>/dev/null || python -m pip install --disable-pip-version-check -r api/requirements.txt
+          python -m pip install --disable-pip-version-check -r api/requirements.txt
           python -m compileall -q api/app scripts tests
           PYTHONPATH="$PWD/api:$PWD" python -m unittest discover -s tests -v
