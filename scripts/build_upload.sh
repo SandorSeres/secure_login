@@ -15,7 +15,7 @@ Examples:
 
 Default: build only (no registry push). --push requires prior docker login,
 a reviewed version tag or exact current remote main commit, and
-publishes <namespace>/secure-login:<version>-arm64. Only Secure Login is built.
+publishes <namespace>/secure-login:<version>-arm64 (or sha-<full-commit>).
 EOF
 }
 VERSION=""
@@ -35,7 +35,7 @@ done
 if [[ "$FROM_MAIN" == true ]]; then
   [[ -z "$VERSION" ]] || { echo "ERROR: choose --version or --from-main, not both" >&2; exit 2; }
 else
-  [[ "$VERSION" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-z0-9.-]+)?$ ]] || {
+  [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?$ ]] || {
     echo "ERROR: supply --version vX.Y.Z[-rc.N] or --from-main" >&2; exit 2;
   }
 fi
@@ -97,13 +97,13 @@ trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/context"
 git archive "$commit" | tar -x -C "$tmp/context"
 [[ -f "$tmp/context/api/Dockerfile" ]] || {
-  echo "ERROR: tagged commit has no Secure Login API Dockerfile" >&2; exit 1;
+  echo "ERROR: reviewed commit has no Secure Login API Dockerfile" >&2; exit 1;
 }
 echo "Source commit: $commit"
 echo "Image: $image"
 echo "Platform: linux/arm64"
 if [[ "$PUSH" == true ]]; then
-  # Inspect the exact tagged source, never the (possibly modified) checkout.
+  # Inspect the exact reviewed source, never the modified checkout.
   # Current public Secure Login revision is not equivalent to the production
   # gateway/IAM contract. Publishing is blocked until the contract is present.
   python3 "$tmp/context/scripts/check_rem_contract.py" --source-root "$tmp/context"
