@@ -157,8 +157,10 @@ def sync_roles(engine: Engine, role_table, user_table, roles) -> None:
 def sync_portals(engine: Engine, portal_table, portals) -> None:
     """Store validated portal metadata without resetting user assignments."""
     # Never delete server-provisioned portal rows during PORTALS_JSON synchronization.
-    with engine.connect() as connection:
-        managed = set(connection.execute(text('SELECT id FROM managed_portals')).scalars())
+    managed = set()
+    if inspect(engine).has_table('managed_portals'):
+        with engine.connect() as connection:
+            managed = set(connection.execute(text('SELECT id FROM managed_portals')).scalars())
     _sync_configuration_rows(
         engine,
         portal_table,
