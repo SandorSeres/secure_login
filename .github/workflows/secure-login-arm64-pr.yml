@@ -13,6 +13,20 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: remtest
+          POSTGRES_PASSWORD: remtest
+          POSTGRES_DB: remtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U remtest -d remtest"
+          --health-interval 5s --health-timeout 3s --health-retries 15
+    env:
+      REM_TEST_PG_URL: postgresql+psycopg2://remtest:remtest@127.0.0.1:5432/remtest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,7 +40,21 @@ jobs:
           file: ./api/Dockerfile
           platforms: linux/arm64
           push: false
+          load: true
           tags: secure-login-pr-arm64:check
+      - name: Smoke-test ARM64 Secure Login import and empty-portal bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --platform linux/arm64 \
+            -e SECRET_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA \
+            -e CSRF_KEY=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB \
+            -e APP_HOST=https://auth.example.invalid \
+            -e DATABASE_URL=sqlite:////tmp/auth-smoke.db \
+            -e 'ROLES_JSON=[{"id":"user","name":"User","default":true}]' \
+            -e 'PORTALS_JSON=[]' \
+            --entrypoint python secure-login-pr-arm64:check \
+            -c 'from app.main import app; assert any(getattr(route,"path",None)=="/health" for route in app.routes); print("auth ARM64 import + empty-portal bootstrap OK")'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -35,5 +63,6 @@ jobs:
         run: |
           set -euo pipefail
           bash -n scripts/build_upload.sh
-          python -m compileall -q scripts tests
-          python -m unittest discover -s tests -v
+          python -m pip install --disable-pip-version-check -r api/requirements.txt
+          python -m compileall -q api/app scripts tests
+          PYTHONPATH="$PWD/api:$PWD" python -m unittest discover -s tests -v
