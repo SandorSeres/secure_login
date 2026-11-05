@@ -1,0 +1,73 @@
+name: REM provisioning Python tests
+on:
+  pull_request:
+    paths:
+      - 'api/app/**'
+      - 'api/tests/test_rem_provisioning.py'
+      - '.github/workflows/rem-provisioning-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  provisioning-unit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install application and test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt pytest httpx
+      - name: Compile changed Python code
+        run: |
+          python -m compileall -q app
+          python -m compileall -q tests/test_rem_provisioning.py
+      - name: Test REM provisioning and legacy ownership
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m pytest -q tests/test_rem_provisioning.py
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: remci
+          POSTGRES_PASSWORD: remci-isolated-test-only
+          POSTGRES_DB: remci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U remci -d remci"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    defaults:
+      run:
+        working-directory: api
+    env:
+      PYTHONPATH: .
+      DATABASE_URL: postgresql+psycopg2://remci:remci-isolated-test-only@127.0.0.1:5432/remci
+      SECRET_KEY: ci-test-only-ssssssssssssssssssssssssssssssssssssssssssss
+      CSRF_KEY: ci-test-only-cccccccccccccccccccccccccccccccccccccccccccc
+      ROLES_JSON: '[{"id":"user","name":"User","default":true}]'
+      ENABLE_MULTI_PORTAL: "true"
+      REM_PROVISIONING_TOKEN: ci-only-tttttttttttttttttttttttttttttttttttttttttt
+      PORTALS_JSON: '[]'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install app and test dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt pytest httpx
+      - name: Run isolated PostgreSQL IAM HTTP integration
+        run: python -m pytest -q tests/test_rem_postgres_integration.py

@@ -11,6 +11,8 @@ from pydantic import ValidationError
 from urllib.parse import quote, unquote
 
 from .config import settings
+from .managed_portals import ManagedPortal, portal_by_id
+from .rem_provisioning import router as rem_provisioning_router
 from .models import Base, Portal, Role, User, UserPortalAccess, engine
 from .database_migrations import (
     ensure_user_role_foreign_key,
@@ -41,6 +43,7 @@ from .token_store import create_reset_token, verify_reset_token, invalidate_rese
 from .email_utils import send_reset_email
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+app.include_router(rem_provisioning_router)
 
 # Statikus fájlok
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -519,7 +522,7 @@ async def set_portal(
             db.commit()
         return {"status": "ok", "portal": None}
 
-    portal = settings.portal_by_id(normalized_portal_id)
+    portal = portal_by_id(normalized_portal_id, db)
     if portal is None or not portal.enabled:
         raise HTTPException(status_code=422, detail="Invalid or disabled portal")
 
@@ -553,7 +556,7 @@ async def grant_portal(request: Request, username: str = Form(), portal_id: str 
     target = db.query(User).filter(User.username == username).first()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
-    portal = settings.portal_by_id(portal_id)
+    portal = portal_by_id(portal_id, db)
     if not portal or not portal.enabled:
         raise HTTPException(status_code=422, detail="Invalid or disabled portal")
     grant = db.get(UserPortalAccess, (target.id, portal.id))

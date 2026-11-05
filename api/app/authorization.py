@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 from fastapi import HTTPException, status
 
 from .config import PortalConfig, settings
+from .managed_portals import portal_by_id
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -43,7 +44,7 @@ def assigned_portal_id(user: "User", db: "Session") -> str | None:
 
 def portals_for_user(user: "User", db: "Session") -> list[PortalConfig]:
     return [portal for id_ in _grant_ids(user, db)
-            if (portal := settings.portal_by_id(id_)) is not None and portal.enabled]
+            if (portal := portal_by_id(id_, db)) is not None and portal.enabled]
 
 
 def assigned_portal(user: "User", db: "Session", portal_id: str | None = None) -> PortalConfig:

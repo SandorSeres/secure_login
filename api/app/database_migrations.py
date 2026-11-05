@@ -86,6 +86,7 @@ def _sync_configuration_rows(
     engine: Engine,
     table,
     rows: Iterable[dict[str, Any]],
+    preserve_ids: set[str] | None = None,
 ) -> None:
     desired_rows = list(rows)
     desired_ids = {row["id"] for row in desired_rows}
@@ -101,7 +102,7 @@ def _sync_configuration_rows(
             else:
                 connection.execute(table.insert().values(**row))
 
-        removed_ids = existing_ids - desired_ids
+        removed_ids = existing_ids - desired_ids - (preserve_ids or set())
         if removed_ids:
             connection.execute(table.delete().where(table.c.id.in_(removed_ids)))
 
@@ -155,6 +156,11 @@ def sync_roles(engine: Engine, role_table, user_table, roles) -> None:
 
 def sync_portals(engine: Engine, portal_table, portals) -> None:
     """Store validated portal metadata without resetting user assignments."""
+    # Never delete server-provisioned portal rows during PORTALS_JSON synchronization.
+    managed = set()
+    if inspect(engine).has_table('managed_portals'):
+        with engine.connect() as connection:
+            managed = set(connection.execute(text('SELECT id FROM managed_portals')).scalars())
     _sync_configuration_rows(
         engine,
         portal_table,
@@ -167,4 +173,5 @@ def sync_portals(engine: Engine, portal_table, portals) -> None:
             }
             for sort_order, portal in enumerate(portals)
         ),
+        preserve_ids=managed,
     )
