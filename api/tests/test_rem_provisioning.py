@@ -10,6 +10,7 @@ os.environ.setdefault("ROLES_JSON", '[{"id":"user","name":"User","default":true}
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from app.config import PortalConfig, settings
 from app.models import Base, User, Role, Portal, UserPortalAccess
@@ -22,7 +23,7 @@ from fastapi import HTTPException
 def db(monkeypatch):
     monkeypatch.setattr(settings, "ENABLE_MULTI_PORTAL", True)
     monkeypatch.setattr(settings, "PORTALS_JSON", [])
-    engine=create_engine("sqlite://")
+    engine=create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     with Session(engine) as session:
         yield session
