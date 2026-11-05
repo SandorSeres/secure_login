@@ -68,3 +68,18 @@ def test_service_token_never_uses_browser_session(monkeypatch):
             require_service(wrong)
         assert exc.value.status_code==401
     assert require_service("Bearer "+token) is None
+
+
+def test_startup_sync_preserves_managed_portal(db):
+    from app.database_migrations import sync_portals
+    register_portal(db, config())
+    sync_portals(db.get_bind(), Portal.__table__, [])
+    db.expire_all()
+    assert portal_by_id("research-a", db) is not None
+    assert db.get(Portal, "research-a") is not None
+
+
+def test_disabled_mode_hides_managed_portals(db, monkeypatch):
+    register_portal(db, config())
+    monkeypatch.setattr(settings, "ENABLE_MULTI_PORTAL", False)
+    assert portal_by_id("research-a", db) is None
