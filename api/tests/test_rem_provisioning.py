@@ -93,3 +93,38 @@ def test_configured_portal_upstream_is_reserved(db, monkeypatch):
     with pytest.raises(ValueError):
         register_portal(db, config())
     assert db.query(ManagedPortal).count() == 0
+
+
+def test_http_service_api_register_grant_and_revoke(db, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.deps import get_db
+    from app.rem_provisioning import router
+    monkeypatch.setattr(settings, "REM_PROVISIONING_TOKEN", "x"*48)
+    db.add(Role(id="user", name="User", is_default=True, sort_order=0))
+    db.add(User(username="test-user", email="test-user@example.invalid",
+                password_hash="fake-test-only", role_id="user"))
+    db.commit()
+    user_id=db.query(User).one().id
+    app=FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_db]=lambda: db
+    client=TestClient(app)
+    path="/internal/rem/instances"
+    assert client.post(path,json=config().model_dump(mode="json")).status_code==401
+    auth={"Authorization":"Bearer "+"x"*48}
+    result=client.post(path,json=config().model_dump(mode="json"),headers=auth)
+    assert result.status_code==200, result.text
+    assert result.json()["result"]=="created"
+    assert client.post(path,json=config().model_dump(mode="json"),headers=auth).json()["result"]=="already-registered"
+    assert client.get(path+"/research-a",headers=auth).status_code==200
+    grant=path+"/research-a/grants"
+    assert client.post(grant,json={"user_id":user_id},headers=auth).status_code==200
+    assert db.get(UserPortalAccess,(user_id,"research-a")) is not None
+    assert client.post(grant,json={"user_id":user_id},headers=auth).status_code==200
+    assert client.delete(grant+f"/{user_id}",headers=auth).status_code==200
+    db.expire_all()
+    assert db.get(UserPortalAccess,(user_id,"research-a")) is None
+    assert client.delete(grant+f"/{user_id}",headers=auth).status_code==200
+    assert client.post(grant,json={"user_id":999999},headers=auth).status_code==404
+    assert client.get(path+"/missing",headers=auth).status_code==404
