@@ -103,3 +103,41 @@ feltöltött Git kiadási tag kell.
 
 **Publikálás után állítsd vissza**
 `DOCKERHUB_PUBLISH_ENABLED=false` értékre.
+
+## Egyszerű Docker Hub-feltöltés a Sparkon – Git-tag létrehozása nélkül
+
+A `build_upload.sh --from-main` a **távoli, ellenőrzött main commit**
+tartalmából épít; a helyi, nem commitolt fájlokat nem használja.
+Az image neve `sseres/secure-login:sha-<TELJES_COMMIT_SHA>`.
+
+```bash
+cd /Data/containers
+# A futó /Data/containers/secure-login telepítési könyvtárhoz NE nyúlj.
+# A forráskód legyen külön checkoutban:
+git clone https://github.com/SandorSeres/secure_login.git secure-login-src
+cd secure-login-src
+git fetch origin main
+git switch main
+git pull --ff-only
+bash -n scripts/build_upload.sh
+
+# Csak ARM64 build, nincs feltöltés:
+bash scripts/build_upload.sh --from-main
+
+# Külön jóváhagyott kandidátus feltöltése a Docker Hubra:
+bash scripts/build_upload.sh --from-main --namespace sseres --push
+```
+
+**Fontos:** ez kandidátus image-et tesz a Docker Hubra, és nem
+telepíti éles rendszerként. A `--push` végrehajtásához előzetes
+`docker login -u sseres` szükséges. A script a kimeneten
+`PUBLISHED_REFERENCE=sseres/secure-login@sha256:...` értéket ad.
+A pontos digest ellenőrzése:
+
+```bash
+docker buildx imagetools inspect 'sseres/secure-login@sha256:<VALODI_DIGEST>'
+```
+
+A `<VALODI_DIGEST>` helyőrző: a script által visszaadott konkrét
+értékre cserélendő. A Docker Hub feltöltés **nem** módosítja a futó
+Secure Login/Caddy/PostgreSQL/Redis szolgáltatásokat.
