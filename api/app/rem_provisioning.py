@@ -26,6 +26,22 @@ def require_service(authorization: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=401, detail="Invalid service credential")
 
 
+@router.get("/users/{username}", dependencies=[Depends(require_service)])
+def resolve_user(username: str, db: Session = Depends(get_db)):
+    """Resolve an exact IAM username to a stable numeric grant identifier.
+
+    Service-to-service only: the same opt-in N:M flag and bearer credential
+    protect this endpoint as instance registration and grant/revoke.
+    No user email, password, role or session data is exposed.
+    """
+    if not 1 <= len(username) <= 128 or any(ord(ch) < 32 or ord(ch) == 127 for ch in username):
+        raise HTTPException(status_code=422, detail="Invalid username")
+    user = db.query(User).filter(User.username == username).one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"user_id": user.id, "username": user.username}
+
+
 class GrantRequest(BaseModel):
     user_id: int
 
