@@ -113,7 +113,15 @@ def test_http_service_api_register_grant_and_revoke(db, monkeypatch):
     client=TestClient(app)
     path="/internal/rem/instances"
     assert client.post(path,json=config().model_dump(mode="json")).status_code==401
+    assert client.get("/internal/rem/users/test-user").status_code==401
     auth={"Authorization":"Bearer "+"x"*48}
+    resolved=client.get("/internal/rem/users/test-user",headers=auth)
+    assert resolved.status_code==200
+    assert resolved.json()=={"user_id":user_id,"username":"test-user"}
+    assert client.get("/internal/rem/users/not-present",headers=auth).status_code==404
+    assert client.get("/internal/rem/users/test-user",headers={
+        "Authorization":"Bearer "+"z"*48
+    }).status_code==401
     result=client.post(path,json=config().model_dump(mode="json"),headers=auth)
     assert result.status_code==200, result.text
     assert result.json()["result"]=="created"
