@@ -34,9 +34,6 @@ jobs:
         run: docker compose config --quiet
       - name: Start isolated PostgreSQL only
         run: docker compose up -d --wait db
-      - name: Ensure database cleanup
-        if: always()
-        run: docker compose down -v --remove-orphans
       - name: Integration regression tests
         shell: bash
         run: |
@@ -113,3 +110,6 @@ jobs:
           [[ "$(query "SELECT count(*) FROM users;")" == 2 ]]
 
           echo "admin.sh PostgreSQL integration tests passed"
+      - name: Ensure database cleanup
+        if: always()
+        run: docker compose down -v --remove-orphans
