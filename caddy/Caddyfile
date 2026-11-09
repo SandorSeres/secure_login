@@ -1,0 +1,17 @@
+{
+    email {$ACME_EMAIL}
+}
+
+{$CADDY_DOMAIN} {
+    encode zstd gzip
+
+    header {
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        Permissions-Policy "geolocation=(), microphone=(), camera=()"
+        -Server
+    }
+
+    reverse_proxy api:8000
+}
