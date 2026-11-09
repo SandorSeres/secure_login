@@ -1,0 +1,53 @@
+name: Caddy proxy configuration check
+
+on:
+  pull_request:
+    paths:
+      - 'docker-compose.yaml'
+      - 'caddy/Caddyfile'
+      - 'CADDY_SETUP.md'
+      - '.github/workflows/caddy-proxy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    env:
+      CADDY_DOMAIN: auth.example.com
+      ACME_EMAIL: test@example.com
+      APP_HOST: https://auth.example.com
+      PG_USER: ci
+      PG_PASSWORD: ci-only-not-used
+      PG_DB: ci
+      SECRET_KEY: ci-only-not-used-signing-key
+      CSRF_KEY: ci-only-not-used-csrf-key
+      SMTP_USER: ci
+      SMTP_PASSWORD: ci-only-not-used
+      SMTP_FROM: ci@example.com
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Docker Compose without starting any service
+        run: docker compose config --quiet
+      - name: Validate actual Caddy configuration without ACME issuance
+        run: |
+          docker run --rm \
+            -e CADDY_DOMAIN -e ACME_EMAIL \
+            -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Verify only proxy is published
+        run: |
+          python3 - <<'PY'
+          import json, subprocess
+          c = json.loads(subprocess.check_output(["docker", "compose", "config", "--format", "json"]))
+          assert "nginx" not in c["services"]
+          assert "certbot" not in c["services"]
+          assert "caddy" in c["services"]
+          assert "api" in c["services"] and "db" in c["services"] and "redis" in c["services"]
+          assert not c["services"]["api"].get("ports")
+          assert "caddy_data" in c["volumes"]
+          assert "caddy_config" in c["volumes"]
+          PY
