@@ -18,4 +18,32 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True) 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     account_level: Mapped[str] = mapped_column(String(32), default="Free")  
-    last_activity = mapped_column(DateTime, default=datetime.utcnow) 
+    last_activity = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# Independent application catalog and user-to-application grants.
+# Existing User columns and authentication behavior remain unchanged.
+from sqlalchemy import ForeignKey
+
+
+class Application(Base):
+    __tablename__ = "applications"
+
+    id: Mapped[str] = mapped_column(String(63), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+
+
+class UserApplicationAccess(Base):
+    __tablename__ = "user_application_access"
+
+    # Composite primary key prevents duplicate grants while allowing:
+    # one user -> many applications; one application -> many users.
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    application_id: Mapped[str] = mapped_column(
+        ForeignKey("applications.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
