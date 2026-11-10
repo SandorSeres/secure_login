@@ -40,7 +40,8 @@ sql <<'SQL'
 CREATE TABLE IF NOT EXISTS application_targets (
     application_id varchar(63) PRIMARY KEY REFERENCES applications(id) ON DELETE CASCADE,
     public_url varchar(253) NOT NULL UNIQUE,
-    upstream_origin varchar(255) NOT NULL
+    upstream_origin varchar(255) NOT NULL,
+    docker_network varchar(128)
 );
 SQL
 
@@ -58,7 +59,7 @@ SELECT CASE WHEN
     to_regclass('public.application_targets') IS NOT NULL AND
     (SELECT count(*) FROM information_schema.columns
       WHERE table_schema='public' AND table_name='application_targets'
-      AND column_name IN ('application_id','public_url','upstream_origin')) = 3 AND
+      AND column_name IN ('application_id','public_url','upstream_origin','docker_network')) = 4 AND
     (SELECT count(*) FROM information_schema.columns
       WHERE table_schema='public' AND table_name='user_application_access'
       AND column_name IN ('user_id','application_id')) = 2
@@ -84,11 +85,11 @@ list_apps() {
     info ""
     info "=== Alkalmazások és hozzárendelések száma ==="
     sql <<'SQL'
-SELECT a.id, a.name, t.public_url, t.upstream_origin, count(g.user_id) AS users
+SELECT a.id, a.name, t.public_url, t.upstream_origin, t.docker_network, count(g.user_id) AS users
 FROM applications AS a
 LEFT JOIN user_application_access AS g ON g.application_id = a.id
 LEFT JOIN application_targets AS t ON t.application_id = a.id
-GROUP BY a.id, a.name, t.public_url, t.upstream_origin
+GROUP BY a.id, a.name, t.public_url, t.upstream_origin, t.docker_network
 ORDER BY a.id;
 SQL
 }
@@ -145,33 +146,37 @@ SQL
 
 # Application URL metadata is additive: it does not rewrite grants or proxy routes.
 save_app_target() {
-    local app_id="$1" public_url internal_url="$2" count
-    read -r -p "Nyilvános alkalmazás-URL (pl. https://dashboard.example.hu): " public_url ||
-        die "megszakítva."
-    valid_http_url "$public_url" || die "érvénytelen alkalmazás-URL (csak HTTP(S) origin)."
-    read -r -p "Belső elérési URL [$public_url]: " internal_url ||
-        die "megszakítva."
-    internal_url="${internal_url:-$public_url}"
-    valid_http_url "$internal_url" || die "érvénytelen belső URL."
-    [[ "$internal_url" == http://* ]] || die "a belső cél HTTP legyen (TLS a proxynál)."
+    local app_id="$1" public_url internal_url network count
+    read -r -p "Nyilvános alkalmazás-URL (HTTPS): " public_url || die "megszakítva."
+    valid_http_url "$public_url" && [[ "$public_url" == https://* ]] ||
+        die "a nyilvános URL-nek HTTPS originnek kell lennie."
+    read -r -p "Belső Docker cél-URL (HTTP): " internal_url || die "megszakítva."
+    valid_http_url "$internal_url" && [[ "$internal_url" == http://* ]] ||
+        die "a belső cél-URL HTTP origin legyen."
+    read -r -p "Docker-hálózat (üres, ha már elérhető): " network || die "megszakítva."
+    [[ -z "$network" || "$network" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$ ]] ||
+        die "érvénytelen Docker-hálózat."
     count="$(scalar -v "v_url=$public_url" -v "v_app=$app_id" <<'SQL'
 SELECT count(*) FROM application_targets
 WHERE public_url = :'v_url' AND application_id <> :'v_app';
 SQL
 )" || die "URL-ütközés ellenőrzése sikertelen."
     [[ "$count" == 0 ]] || die "a nyilvános URL már másik alkalmazáshoz tartozik."
-    confirm "Beállítod az elérhetőséget: $app_id -> $public_url (belső: $internal_url)?" ||
+    confirm "Beállítod az URL-eket az alkalmazáshoz: $app_id?" ||
         { info "Megszakítva."; return; }
-    sql -v "v_app=$app_id" -v "v_url=$public_url" -v "v_internal=$internal_url" <<'SQL'
+    sql -v "v_app=$app_id" -v "v_url=$public_url" -v "v_internal=$internal_url" -v "v_net=$network" <<'SQL'
 BEGIN;
-INSERT INTO application_targets (application_id, public_url, upstream_origin)
-VALUES (:'v_app', :'v_url', :'v_internal')
+INSERT INTO application_targets (application_id, public_url, upstream_origin, docker_network)
+VALUES (:'v_app', :'v_url', :'v_internal', NULLIF(:'v_net',''))
 ON CONFLICT (application_id) DO UPDATE
-SET public_url = EXCLUDED.public_url, upstream_origin = EXCLUDED.upstream_origin;
+SET public_url = EXCLUDED.public_url,
+    upstream_origin = EXCLUDED.upstream_origin,
+    docker_network = EXCLUDED.docker_network;
 COMMIT;
-SELECT application_id, public_url, upstream_origin FROM application_targets
+SELECT application_id, public_url, upstream_origin, docker_network FROM application_targets
 WHERE application_id = :'v_app';
 SQL
+    info "URL elmentve. A proxy útvonalakat külön aktiválni kell."
 }
 
 create_app() {
