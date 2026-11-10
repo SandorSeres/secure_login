@@ -3,7 +3,7 @@
 
 The root portal (AI-Dashboard) retains its absolute /api, /static, /assets,
 /ws URLs. Other applications are isolated under /apps/<id>/.
-Rows on stdin: app_id|public_url|internal_origin|docker_network|legacy_roots.
+Rows on stdin: app_id|public_url|internal_origin|docker_network.
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def parse_url(value: str, scheme: str) -> tuple[str, int | None, str]:
 
 
 def validate_row(fields: list[str], host: str) -> tuple[str, str, str, bool]:
-    app, public, upstream, network, roots = fields
+    app, public, upstream, network = fields
     if not APP_ID.fullmatch(app):
         raise ValueError("Invalid application ID")
     external_host, external_port, external_path = parse_url(public, "https")
@@ -56,8 +56,6 @@ def validate_row(fields: list[str], host: str) -> tuple[str, str, str, bool]:
         raise ValueError("Backend requires reachable Docker hostname and explicit port")
     if network and not NETWORK.fullmatch(network):
         raise ValueError("Invalid Docker network")
-    if roots:
-        raise ValueError("Legacy root aliases not required: root app owns /")
     return app, upstream, network, is_root
 
 
@@ -108,6 +106,7 @@ def render_site(host: str, rows: list[tuple[str, str, str, bool]]) -> str:
             f"    handle {prefix}/* {{\n",
             auth_block(app),
             f"        uri strip_prefix {prefix}\n",
+            "        request_header -Cookie\n",
             f"        reverse_proxy {upstream} {{\n",
             "            flush_interval -1\n",
             "        }\n",
@@ -156,7 +155,7 @@ def main() -> None:
         if not line.strip():
             continue
         fields = line.rstrip("\r\n").split("|")
-        if len(fields) != 5:
+        if len(fields) != 4:
             raise ValueError(f"Invalid registry row {lineno}")
         rows.append(validate_row(fields, host))
     app_ids = [row[0] for row in rows]
