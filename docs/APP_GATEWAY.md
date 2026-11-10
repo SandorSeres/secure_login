@@ -1,109 +1,130 @@
-# Application URL registration and protected access (opt-in)
+# Secure Login N:M application gateway — shared research.code.hu
 
-Scope: **Secure Login only.** No changes to existing user records, login endpoints,
-account levels, grants or application workloads. All routes fail closed.
+**Routing contract (one hostname for all applications):**
+- `https://ai.code.hu`: existing Secure Login and authentication.
+- `https://research.code.hu/<app-id>/`: application access behind Caddy.
+- The only application DNS name required is `research.code.hu`. **No per-app DNS entries.**
+- Caddy owns the HTTPS endpoint and enforces the N:M grant on **every** HTTP or WebSocket request.
 
-## URL concepts
+The existing users, passwords, sessions, grants, and `ai.code.hu` login
+routes are unchanged. All application routes are **opt in** until configured.
 
-Register each application with:
+## Admin menu
 
-- **Public URL:** a distinct, DNS-resolving HTTPS origin, e.g. `https://dashboard.example.com`. This is the address in the browser. It must **not** reuse the Secure Login host.
-- **Internal URL:** a private HTTP origin *reachable from the Secure Login Caddy container*, e.g. `http://ai-dashboard-secure-app-dashboard-1:8000`. Do **not** enter `http://127.0.0.1:8380`: inside the Caddy container, 127.0.0.1 refers to Caddy, not the Spark host.
-- **Docker network:** optional existing network to attach the Caddy container to, e.g. `ai-dashboard-secure-app_dashboard-control`.
+`bash admin.sh`:
+- 4 — create application and its URL/network/compatibility routing.
+- 5 — assign an existing app to an existing user (unchanged).
+- 6 — revoke (unchanged, takes effect on the next gateway request).
+- 8 — change URL/network/compatibility routes without deleting grants.
+- 3 — list applications and configured targets.
 
-For the separately deployed AI-Dashboard:
-- Host-mapped port: `127.0.0.1:8380` (unchanged).
-- Container's HTTP port: `8000`.
-- Docker network: verify the exact name using
-  `docker inspect ai-dashboard-secure-app-dashboard-1 --format '{{json .NetworkSettings.Networks}}'`.
-- If the network is `ai-dashboard-secure-app_dashboard-control`, the internal URL may be
-  `http://ai-dashboard-secure-app-dashboard-1:8000` after Caddy joins that network.
-- A separate public hostname, e.g. `dashboard.example.com`, needs a DNS record and valid TLS before activation.
+For AI-Dashboard already registered as `ai-dashboard`, use **8**, not 4:
 
-## Admin operations
-
-```bash
-cd /Data/containers/secure-login
-bash admin.sh
+```text
+Alkalmazásazonosító: ai-dashboard
+Nyilvános URL: https://research.code.hu/ai-dashboard
+Belső cél-URL: http://ai-dashboard-secure-app-dashboard-1:8000
+Docker-hálózat: ai-dashboard-secure-app_dashboard-control
+Régi gyökérútvonalak: /api,/static,/assets,/ws
 ```
 
-- **4:** create a new app and enter both URLs plus optional Docker network.
-- **8:** update the URLs of an existing app (including `ai-dashboard`) without recreating the app, user or grants.
-- **5:** grant `ai-dashboard` to `sseres`; **6** revokes the grant.
-- **3:** list apps, registered URLs and grant counts.
+The Spark host mapping **127.0.0.1:8380** stays unchanged. The internal
+Docker service runs on **8000**. Do not use `127.0.0.1:8380` as the Caddy
+container's upstream: loopback inside a container points to that container.
 
-The CLI creates only the new `application_targets` table if absent and generates
-`caddy/app-gateway-generated/*.caddy` and `compose.app-gateway.yaml`.
-It **does not** restart a service automatically.
+## Root-relative assets / APIs
 
-The URL configuration and user/app grant are distinct. Changing the URLs
-does not change existing N:M authorizations.
+Applications that natively support a path prefix need only their
+`/<app-id>/` route.
 
-## First deployment: validate before activating
+AI-Dashboard currently uses root-relative URLs (`/api`, `/static`,
+`/assets`, `/ws`). Its four compatibility aliases are routed
+**only** to AI-Dashboard, and remain behind the same N:M authorization.
+No AI-Dashboard source changes are necessary for these declared routes.
 
-Back up the Secure Login PostgreSQL database and configuration before upgrading
-an existing production installation. Never remove volumes or reset users.
+**Limitation:** two applications cannot both claim `/api`, `/static`,
+`/assets`, or another identical root-relative route on the same hostname.
+The generator rejects collisions instead of silently serving the wrong
+application. To support multiple apps that require the same root routes,
+those applications must support an application-specific base path, or
+an additional path-rewriting strategy must be implemented and tested.
+The current implementation does not claim universal unmodified-app support.
 
-After fetching the tested branch / reviewed release, and configuring at least
-one application URL:
+No other port, Docker workload, or application is changed by registering
+the URL. The CLI generates the shared-host Caddy site but never reloads it.
+
+## Security
+
+After signing in at `ai.code.hu`, navigate to:
+
+```text
+https://ai.code.hu/applications/ai-dashboard/launch
+```
+
+The login API verifies the existing N:M grant, produces a short-lived,
+single-use Redis ticket, and sends the browser to:
+
+```text
+https://research.code.hu/ai-dashboard/_secure-login/redeem?ticket=...
+```
+
+Caddy routes the ticket redemption to Secure Login. The resulting
+Secure, HttpOnly, same-host, per-app cookie is used when loading
+`/ai-dashboard/`, and for its reserved `/api`, `/static`,
+`/assets`, and `/ws` paths. All requests recheck permissions. Revoking
+the N:M grant denies new requests immediately.
+
+Each app has its own signed cookie name; a cookie for one app does not
+authorize a different app.
+
+Note: logging out of `ai.code.hu` does not yet independently revoke
+an already minted application cookie; revoking the grant does. This is a
+current session-lifecycle limitation, not a new login behavior.
+
+## Integration / activation (operator controlled)
+
+The following are documented steps, **not executed on production**:
+
+1. Back up the Secure Login PostgreSQL data and files; do not destroy volumes.
+2. Check the `research.code.hu` DNS resolves to the Spark's public HTTPS
+   endpoint (same endpoint as `ai.code.hu`).
+3. Update to the reviewed Secure Login branch/release.
+4. Register/adjust app URL in `admin.sh` menu **8**.
+5. Check generated site `caddy/app-gateway-generated/research-gateway.caddy`.
+6. Validate the Compose overlay and the Caddy config before deployment.
+7. Explicitly deploy/recreate only Secure Login API and Caddy with overlay.
+
+Example syntax checks with actual existing Compose inputs:
 
 ```bash
 cd /Data/containers/secure-login
-
 docker compose -f docker-compose.yaml -f compose.app-gateway.yaml config --quiet
 docker compose -f docker-compose.yaml -f compose.app-gateway.yaml \
   run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 ```
 
-The generated external Docker network(s) **must already exist** before the
-network overlay can be used. Ensure public HTTPS DNS resolves to the Caddy host
-and existing 80/443 routing is preserved.
-
-Once validation passes and the existing app network is available, deploy only
-the changed Secure Login **API and Caddy** services:
+After backup and validation, only when ready for a maintenance window:
 
 ```bash
 docker compose -f docker-compose.yaml -f compose.app-gateway.yaml \
   up -d --no-deps --build api caddy
 ```
 
-This does **not** rebuild AI-Dashboard, worker, ASR, PostgreSQL or Redis.
-Always include the generated overlay in subsequent Secure Login Compose
-operations that recreate Caddy. Never run `docker compose down -v`.
+No modification/rebuild of AI-Dashboard, codex-worker, ASR, database, or
+Redis is planned. **Never use `docker compose down -v`**.
+Ensure Caddy can join the named, already existing Dashboard Docker network.
 
-## User access
+## Acceptance checklist
 
-1. Sign in to Secure Login at its existing HTTPS hostname.
-2. Navigate to `https://<login-host>/applications/ai-dashboard/launch`.
-3. The server checks the login session and N:M grant and issues a **single-use,
-   60-second** Redis ticket, then redirects to the registered public app URL.
-4. Caddy redeems the ticket; a signed, Secure/HttpOnly, app-host-only cookie
-   is set (six-hour maximum).
-5. **Every** subsequent HTTP request and WebSocket upgrade passes Caddy
-   `forward_auth`, which verifies the cookie and **rechecks N:M access**.
-   Revocation takes effect on the next request.
+- Secure Login continues to work at `https://ai.code.hu/`.
+- `https://research.code.hu/ai-dashboard/` denies anonymous sessions.
+- Authenticated but unassigned user denied.
+- Assigned user can launch and load HTML and `/static` and `/assets`.
+- `/api` GET/POST and WebSocket `/ws` work through Caddy.
+- Revocation immediately denies HTML, API, asset and WebSocket requests.
+- A second app claiming `/api` must be rejected.
+- AI-Dashboard remains accessible at its unchanged local 8380 endpoint.
 
-An unauthenticated or unassigned user cannot reach the Caddy app upstream.
-The existing `127.0.0.1:8380` host binding remains for trusted local
-administration; this proxy cannot revoke access to that local-only listener
-from users who already have local host access.
-
-## Security and deployment limitations
-
-- Existing login endpoints, cookie attributes, passwords and access levels
-  are unchanged.
-- There is no cross-host sharing of the Secure Login session cookie. The
-  one-time ticket creates a separate, app-specific cookie. Logging out of the
-  login host does **not** immediately expire already issued app cookies;
-  revoke the app grant to terminate app access immediately.
-- Each application needs a separate public HTTPS hostname. This avoids
-  modifying the application's root-relative URLs, APIs and WebSocket paths.
-- Only operator-registered targets are proxied; the public cannot supply a
-  destination URL. Private backends should not expose their own public bypass.
-- Changes to the registered internal origin require regeneration and explicit
-  Caddy reload/recreation. The CLI renders files but never silently reloads.
-- Generate/validate/redeploy with the **same Compose overlay**. If a Docker
-  network is renamed or removed, correct the admin target/network first.
-- This is not an automatic migration to production. Test Caddy routing,
-  authentication, revocation, static files, job APIs and WebSocket connections
-  on the Spark before merging or considering the deployment accepted.
+The CI suite verifies format, Caddy syntax, DB changes, N:M authorization,
+ticket replay denial, and router generation. Live Spark functionality and
+DNS/TLS reachability require separate tests before production deployment.
