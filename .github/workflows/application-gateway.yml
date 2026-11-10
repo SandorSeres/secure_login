@@ -44,6 +44,10 @@ jobs:
             | python scripts/render_app_gateway.py
           grep -q 'forward_auth' caddy/app-gateway-generated/dashboard.caddy
           grep -q 'external: true' compose.app-gateway.yaml
+          PG_USER=ci PG_PASSWORD=ci PG_DB=ci SECRET_KEY=ci CSRF_KEY=ci \
+            CADDY_DOMAIN=auth.example.com ACME_EMAIL=ci@example.com \
+            APP_HOST=https://auth.example.com \
+            docker compose -f docker-compose.yaml -f compose.app-gateway.yaml config --quiet
       - name: Validate Caddy configuration syntax
         run: |
           docker run --rm \
