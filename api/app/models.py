@@ -47,3 +47,13 @@ class UserApplicationAccess(Base):
         primary_key=True,
         index=True,
     )
+
+
+class ApplicationTarget(Base):
+    """Optional private HTTP target; application grants remain the sole authority."""
+    __tablename__ = "application_targets"
+
+    application_id: Mapped[str] = mapped_column(
+        ForeignKey("applications.id", ondelete="CASCADE"), primary_key=True
+    )
+    upstream_origin: Mapped[str] = mapped_column(String(255), nullable=False)
