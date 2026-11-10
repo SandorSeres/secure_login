@@ -291,11 +291,11 @@ async def reset_password_page(request: Request, token: str):
     csrf_token = request.cookies.get(settings.CSRF_COOKIE_NAME) or issue_csrf()
     html = templates.get_template("reset_password.html").render(
         title="Új jelszó megadása",
-        csrf_token=csrf,
+        csrf_token=csrf_token,
         token=token
     )
     resp = HTMLResponse(html)
-    set_csrf_cookie(resp, csrf, 3600)
+    set_csrf_cookie(resp, csrf_token, 3600)
     return resp
 
 
