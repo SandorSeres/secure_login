@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Render operator-managed, fail-closed Caddy sites from read-only application rows.
+"""Generate shared research.code.hu routes; no running containers modified.
 
-Input: pipe-delimited (id, public_url, upstream_origin, docker_network), one per
-line, obtained from the trusted local PostgreSQL catalog. No service restart.
+Input (trusted local DB rows): app_id|public_url|internal_origin|docker_network|legacy_roots.
+Legacy roots reserve root-relative /api, /static etc for one app only.
 """
 from __future__ import annotations
 
@@ -20,74 +20,100 @@ OVERLAY = ROOT / "compose.app-gateway.yaml"
 APP_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,62}\Z")
 DNS = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9.-]{0,251}[a-zA-Z0-9]\Z")
 NETWORK = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}\Z")
+ROOT_ROUTE = re.compile(r"/[a-zA-Z0-9][a-zA-Z0-9_-]*\Z")
+RESERVED = {"/_secure-login"}
 
 
-def parse_origin(value: str, *, scheme: str) -> tuple[str, int | None]:
-    if not value or value.strip() != value:
-        raise ValueError("Invalid origin")
+def parse_origin(value: str, scheme: str) -> tuple[str, int | None, str]:
     parsed = urlsplit(value)
     if (
-        parsed.scheme != scheme or parsed.username or parsed.password
-        or parsed.path or parsed.query or parsed.fragment
-        or not parsed.hostname or not DNS.fullmatch(parsed.hostname)
+        value.strip() != value or parsed.scheme != scheme or not parsed.hostname
+        or not DNS.fullmatch(parsed.hostname) or parsed.username or parsed.password
+        or parsed.query or parsed.fragment
     ):
-        raise ValueError("Invalid application origin")
+        raise ValueError("Invalid URL")
     try:
         port = parsed.port
     except ValueError as exc:
-        raise ValueError("Invalid application port") from exc
-    if parsed.netloc != parsed.hostname + (f":{port}" if port is not None else ""):
-        raise ValueError("Noncanonical origin")
-    return parsed.hostname, port
+        raise ValueError("Invalid port") from exc
+    return parsed.hostname, port, parsed.path
 
 
-def render_site(app_id: str, public: str, upstream: str) -> str:
-    if not APP_ID.fullmatch(app_id):
-        raise ValueError("Invalid app id")
-    host, public_port = parse_origin(public, scheme="https")
-    upstream_host, upstream_port = parse_origin(upstream, scheme="http")
-    if upstream_port is None:
-        raise ValueError("Explicit upstream port is required")
-    if upstream_host in {"localhost", "127.0.0.1", "0.0.0.0"}:
-        raise ValueError("Container upstream cannot be loopback")
-    if public_port is not None:
-        raise ValueError("Public HTTPS origin must use standard port 443")
-    if host in {"localhost", "127.0.0.1"}:
-        raise ValueError("Public host must not be loopback")
-    if host == os.environ.get("CADDY_DOMAIN", "").lower():
-        raise ValueError("Application host cannot equal login host")
+def validate_row(fields: list[str], shared_host: str) -> tuple[str, str, str, list[str]]:
+    app, public, upstream, network, roots = fields
+    if not APP_ID.fullmatch(app):
+        raise ValueError("Invalid application ID")
+    host, public_port, path = parse_origin(public, "https")
+    if host != shared_host or public_port is not None or path != "/" + app:
+        raise ValueError("Public URL must be https://" + shared_host + "/" + app)
+    internal_host, internal_port, internal_path = parse_origin(upstream, "http")
+    if internal_port is None or internal_path or internal_host in {"localhost", "127.0.0.1", "0.0.0.0"}:
+        raise ValueError("Backend must be a reachable container HTTP origin and explicit port")
+    if network and not NETWORK.fullmatch(network):
+        raise ValueError("Invalid Docker network")
+    aliases = [item.strip() for item in roots.split(",") if item.strip()]
+    if len(aliases) != len(set(aliases)):
+        raise ValueError("Duplicate legacy route")
+    for alias in aliases:
+        if not ROOT_ROUTE.fullmatch(alias) or alias in RESERVED or alias == "/" + app:
+            raise ValueError("Invalid legacy route: " + alias)
+    return app, upstream, network, aliases
+
+
+def auth_block(app: str) -> str:
     return (
-        f"{host}{':' + str(public_port) if public_port else ''} {{\n"
-        "    encode zstd gzip\n"
-        "    header {\n"
-        '        X-Content-Type-Options "nosniff"\n'
-        '        Referrer-Policy "no-referrer"\n'
-        "    }\n"
-        "    handle /_secure-login/redeem {\n"
-        "        reverse_proxy api:8000 {\n"
-        f'            header_up X-Gateway-App "{app_id}"\n'
-        "            header_up Host {host}\n"
-        "        }\n"
-        "    }\n"
-        "    handle {\n"
         "        forward_auth api:8000 {\n"
         "            uri /_secure-login/authorize\n"
-        f'            header_up X-Gateway-App "{app_id}"\n'
+        f'            header_up X-Gateway-App "{app}"\n'
         "            header_up Host {host}\n"
+        "            header_up X-Forwarded-Method {method}\n"
         "            header_up X-Original-Upgrade {header.Upgrade}\n"
         "        }\n"
-        f"        reverse_proxy {upstream}\n"
-        "    }\n"
-        "}\n"
     )
 
 
-def atomic_write(path: Path, data: str) -> None:
+def render_site(shared_host: str, rows: list[tuple[str, str, str, list[str]]]) -> str:
+    # Caddy handles only one site per hostname, with mutually exclusive path routes.
+    parts = [f"{shared_host} {{\n", "    encode zstd gzip\n",
+             '    header X-Content-Type-Options "nosniff"\n',
+             '    header Referrer-Policy "no-referrer"\n']
+    for app, upstream, _, aliases in rows:
+        parts.extend([
+            f"    handle /{app} {{\n",
+            f"        redir /{app}/ 308\n",
+            "    }\n",
+            f"    handle /{app}/_secure-login/redeem {{\n",
+            f"        uri strip_prefix /{app}\n",
+            "        reverse_proxy api:8000 {\n",
+            f'            header_up X-Gateway-App "{app}"\n',
+            "            header_up Host {host}\n",
+            "        }\n",
+            "    }\n",
+            f"    handle /{app}/* {{\n",
+            auth_block(app),
+            f"        uri strip_prefix /{app}\n",
+            f"        reverse_proxy {upstream}\n",
+            "    }\n",
+        ])
+        for alias in aliases:
+            parts.extend([
+                f"    handle {alias} {{\n",
+                auth_block(app),
+                f"        reverse_proxy {upstream}\n",
+                "    }\n",
+                f"    handle {alias}/* {{\n",
+                auth_block(app),
+                f"        reverse_proxy {upstream}\n",
+                "    }\n",
+            ])
+    parts.extend(['    handle {\n', '        respond "Not found" 404\n', '    }\n', '}\n'])
+    return "".join(parts)
+
+
+def write_atomic(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", dir=path.parent, delete=False
-    ) as tmp:
-        tmp.write(data)
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, encoding="utf-8", delete=False) as tmp:
+        tmp.write(content)
         tmp.flush()
         os.fchmod(tmp.fileno(), 0o644)
         staged = Path(tmp.name)
@@ -95,42 +121,51 @@ def atomic_write(path: Path, data: str) -> None:
 
 
 def main() -> None:
+    shared_host = os.environ.get("APP_GATEWAY_HOST", "research.code.hu")
+    if not DNS.fullmatch(shared_host) or shared_host == os.environ.get("CADDY_DOMAIN", ""):
+        raise ValueError("Invalid shared gateway hostname")
     rows = []
     for lineno, line in enumerate(sys.stdin, 1):
         if not line.strip():
             continue
         fields = line.rstrip("\r\n").split("|")
-        if len(fields) != 4:
-            raise ValueError(f"Invalid registry row {lineno}")
-        app_id, public, upstream, network = fields
-        site = render_site(app_id, public, upstream)
-        if network and not NETWORK.fullmatch(network):
-            raise ValueError("Invalid Docker network name")
-        rows.append((app_id, site, network))
-    ids = [row[0] for row in rows]
-    if len(set(ids)) != len(ids):
-        raise ValueError("Duplicate application identifiers")
-    networks = sorted({row[2] for row in rows if row[2]})
-    aliases = {network: f"app_network_{index}" for index, network in enumerate(networks, 1)}
-
-    # Stage and validate all content before writing. Only this dedicated,
-    # generated folder is managed; never touch custom Caddy configuration.
+        if len(fields) != 5:
+            raise ValueError(f"Invalid catalog row {lineno}")
+        rows.append(validate_row(fields, shared_host))
+    apps = [x[0] for x in rows]
+    if len(apps) != len(set(apps)):
+        raise ValueError("Duplicate app IDs")
+    all_routes = {"/" + a for a in apps}
+    for app, _, _, aliases in rows:
+        for alias in aliases:
+            if alias in all_routes:
+                raise ValueError("Legacy route conflicts with app ID: " + alias)
+            all_routes.add(alias)
+    # Separate check for alias collisions, including exact + subtree.
+    aliases = [a for row in rows for a in row[3]]
+    if len(aliases) != len(set(aliases)):
+        raise ValueError("Two apps claim the same root-relative path")
+    networks = sorted({x[2] for x in rows if x[2]})
+    network_aliases = {network: f"app_network_{index}" for index, network in enumerate(networks, 1)}
     overlay = "services:\n  caddy:\n    networks:\n      - secure_net\n"
-    overlay += "".join(f"      - {aliases[n]}\n" for n in networks)
+    overlay += "".join(f"      - {network_aliases[n]}\n" for n in networks)
     overlay += "networks:\n  secure_net: {}\n"
     overlay += "".join(
-        f"  {aliases[n]}:\n    external: true\n    name: {json.dumps(n)}\n"
+        f"  {network_aliases[n]}:\n    external: true\n    name: {json.dumps(n)}\n"
         for n in networks
     )
     OUT.mkdir(parents=True, exist_ok=True)
-    for app_id, site, _ in rows:
-        atomic_write(OUT / f"{app_id}.caddy", site)
+    # Remove old per-host files only after complete validation.
+    if rows:
+        write_atomic(OUT / "research-gateway.caddy", render_site(shared_host, rows))
+    else:
+        (OUT / "research-gateway.caddy").unlink(missing_ok=True)
     for old in OUT.glob("*.caddy"):
-        if old.stem not in ids:
+        if old.name != "research-gateway.caddy":
             old.unlink()
-    atomic_write(OVERLAY, overlay)
-    print(f"Generated {len(rows)} app site(s) and {len(networks)} network(s).")
-    print("No running containers or services have been changed.")
+    write_atomic(OVERLAY, overlay)
+    print(f"Generated shared gateway for {len(rows)} application(s) on {shared_host}.")
+    print("No running services changed.")
 
 
 if __name__ == "__main__":
