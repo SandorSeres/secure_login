@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import secrets
 from urllib.parse import quote
 
@@ -85,7 +86,7 @@ def redeem(
     target = db.get(ApplicationTarget, app_id)
     if target is None or not _site_matches(request, target):
         raise HTTPException(status_code=403, detail="Invalid application gateway")
-    if len(ticket) < 24 or len(ticket) > 128:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{43}", ticket):
         raise HTTPException(status_code=403, detail="Invalid application ticket")
     try:
         with _cache() as cache:
@@ -135,7 +136,7 @@ def authorize(request: Request, db: Session = Depends(get_db)):
 
     # Browser writes and WebSocket handshakes must originate on the app site.
     method = request.headers.get("x-forwarded-method", "").upper()
-    upgrade = request.headers.get("upgrade", "").lower()
+    upgrade = request.headers.get("x-original-upgrade", "").lower()
     if method in {"POST", "PUT", "PATCH", "DELETE"} or upgrade == "websocket":
         if request.headers.get("origin") != target.public_url:
             raise HTTPException(status_code=403, detail="Application origin not permitted")
