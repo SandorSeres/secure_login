@@ -46,7 +46,7 @@ def _ticket_key(ticket: str) -> str:
 def _site_matches(request: Request, target: ApplicationTarget) -> bool:
     # No trust in request-supplied Forwarded/X-Forwarded-Host.
     host = request.headers.get("host", "").lower()
-    return target.public_url == "https://" + host + "/" + target.application_id
+    return target.public_url.rstrip("/") == "https://" + host or target.public_url == "https://" + host + "/apps/" + target.application_id
 
 
 @router.get("/applications/{app_id}/launch")
@@ -105,7 +105,7 @@ def redeem(
     if db.get(User, user_id) is None or not _has_grant(db, user_id, app_id):
         raise HTTPException(status_code=403, detail="Application not permitted")
     value = _signer.dumps({"user_id": user_id, "app_id": app_id})
-    response = RedirectResponse("/" + app_id + "/", status_code=303)
+    response = RedirectResponse(("/" if target.public_url.rstrip("/") == "https://" + request.headers.get("host", "").lower() else "/apps/" + app_id + "/"), status_code=303)
     response.set_cookie(
         _COOKIE + app_id, value, max_age=_SESSION_TTL,
         secure=True, httponly=True, samesite="lax", path="/",
