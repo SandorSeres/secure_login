@@ -39,7 +39,7 @@ class FakeRedis:
 
 
 def request(*, host="dashboard.example.com", cookie=None, method="GET", origin=None):
-    headers = [(b"host", host.encode())]
+    headers = [(b"host", host.encode()), (b"x-gateway-app", b"dashboard")]
     if cookie:
         headers.append((b"cookie", cookie.encode()))
     if method:
