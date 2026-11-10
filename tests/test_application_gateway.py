@@ -76,7 +76,6 @@ class GatewayAccessTests(unittest.TestCase):
                 public_url="https://research.code.hu",
                 upstream_origin="http://dashboard:8000",
                 docker_network=None,
-                legacy_roots="/api,/static,/assets,/ws",
             ),
         ])
         self.db.commit()
