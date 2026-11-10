@@ -1,0 +1,53 @@
+name: Secure Login application gateway regression
+
+on:
+  pull_request:
+    paths:
+      - 'admin.sh'
+      - 'api/app/application_access.py'
+      - 'api/app/main.py'
+      - 'api/app/models.py'
+      - 'caddy/Caddyfile'
+      - 'docker-compose.yaml'
+      - 'scripts/render_app_gateway.py'
+      - 'tests/test_application_gateway.py'
+      - '.github/workflows/application-gateway.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gateway:
+    runs-on: ubuntu-latest
+    env:
+      SECRET_KEY: ci-only-gateway-signing-secret
+      CSRF_KEY: ci-only-csrf-secret
+      DATABASE_URL: sqlite://
+      CADDY_DOMAIN: auth.example.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install existing application dependencies
+        run: python -m pip install -r api/app/requirements.txt
+      - name: Syntax and focused authorization regressions
+        run: |
+          bash -n admin.sh
+          python -m py_compile api/app/application_access.py api/app/models.py scripts/render_app_gateway.py
+          PYTHONPATH=api python -m unittest discover -s tests -p test_application_gateway.py -v
+          PYTHONPATH=api python -m unittest discover -s tests -p test_user_application_access.py -v
+      - name: Render fixed-site Caddy gateway
+        run: |
+          printf 'dashboard|https://dashboard.example.com|http://dashboard:8000|example_dashboard_net\n' \
+            | python scripts/render_app_gateway.py
+          grep -q 'forward_auth' caddy/app-gateway-generated/dashboard.caddy
+          grep -q 'external: true' compose.app-gateway.yaml
+      - name: Validate Caddy configuration syntax
+        run: |
+          docker run --rm \
+            -e ACME_EMAIL=ci@example.com -e CADDY_DOMAIN=auth.example.com \
+            -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -v "$PWD/caddy/app-gateway-generated:/etc/caddy/app-gateway-generated:ro" \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
