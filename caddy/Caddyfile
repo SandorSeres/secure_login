@@ -15,3 +15,6 @@
 
     reverse_proxy api:8000
 }
+
+# Optional, individually authorized app sites.
+import /etc/caddy/app-gateway-generated/*.caddy

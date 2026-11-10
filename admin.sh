@@ -12,6 +12,19 @@ confirm() {
 }
 valid_app_id() { [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]]; }
 valid_number() { [[ "$1" =~ ^[0-9]+$ ]] && (( 10#$1 >= 1 )); }
+valid_http_url() {
+    local url="$1" host port
+    [[ "$url" =~ ^https?://[a-zA-Z0-9.-]+(:[0-9]{1,5})?$ ]] || return 1
+    host="${url#*://}"
+    host="${host%%:*}"
+    [[ "$host" != .* && "$host" != *. && "$host" != *..* ]] || return 1
+    port="${url##*:}"
+    if [[ "$url" == *:*:* ]]; then
+        (( 10#$port >= 1 && 10#$port <= 65535 )) || return 1
+    fi
+    [[ "${#url}" -le 253 ]]
+}
+
 
 # Explicitly bind to the Compose project next to THIS script. Never scan
 # unrelated PostgreSQL containers on the host.
@@ -32,6 +45,16 @@ sql() {
 }
 scalar() { sql -qAt "$@"; }
 
+# New optional URL catalog only. Existing users, applications and grants unchanged.
+sql <<'SQL'
+CREATE TABLE IF NOT EXISTS application_targets (
+    application_id varchar(63) PRIMARY KEY REFERENCES applications(id) ON DELETE CASCADE,
+    public_url varchar(253) NOT NULL UNIQUE,
+    upstream_origin varchar(255) NOT NULL,
+    docker_network varchar(128)
+);
+SQL
+
 SCHEMA_OK="$(scalar <<'SQL'
 SELECT CASE WHEN
     to_regclass('public.users') IS NOT NULL AND
@@ -43,6 +66,10 @@ SELECT CASE WHEN
     (SELECT count(*) FROM information_schema.columns
       WHERE table_schema='public' AND table_name='applications'
       AND column_name IN ('id','name')) = 2 AND
+    to_regclass('public.application_targets') IS NOT NULL AND
+    (SELECT count(*) FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='application_targets'
+      AND column_name IN ('application_id','public_url','upstream_origin','docker_network')) = 4 AND
     (SELECT count(*) FROM information_schema.columns
       WHERE table_schema='public' AND table_name='user_application_access'
       AND column_name IN ('user_id','application_id')) = 2
@@ -68,10 +95,11 @@ list_apps() {
     info ""
     info "=== Alkalmazások és hozzárendelések száma ==="
     sql <<'SQL'
-SELECT a.id, a.name, count(g.user_id) AS users
+SELECT a.id, a.name, t.public_url, t.upstream_origin, t.docker_network, count(g.user_id) AS users
 FROM applications AS a
 LEFT JOIN user_application_access AS g ON g.application_id = a.id
-GROUP BY a.id, a.name
+LEFT JOIN application_targets AS t ON t.application_id = a.id
+GROUP BY a.id, a.name, t.public_url, t.upstream_origin, t.docker_network
 ORDER BY a.id;
 SQL
 }
@@ -126,6 +154,58 @@ SELECT id, username, account_level FROM users WHERE id = :'v_id'::integer;
 SQL
 }
 
+render_gateway() {
+    command -v python3 >/dev/null || die "a konfiguráció generálásához python3 szükséges."
+    sql -qAt -F '|' <<'SQL' | python3 scripts/render_app_gateway.py
+SELECT application_id, public_url, upstream_origin, COALESCE(docker_network, '')
+FROM application_targets ORDER BY application_id;
+SQL
+}
+
+save_app_target() {
+    local app_id="$1" app_name="${2:-}" public_url internal_url network count
+    if [[ "$app_id" == ai-dashboard ]]; then
+        info "AI-Dashboard főalkalmazásként: https://research.code.hu"
+    else
+        info "További alkalmazásként: https://research.code.hu/apps/$app_id"
+    fi
+    read -r -p "Nyilvános URL (főapp: https://research.code.hu; további: https://research.code.hu/apps/azonosito): " public_url || die "megszakítva."
+    [[ "$public_url" == "https://research.code.hu" || "$public_url" == "https://research.code.hu/apps/$app_id" ]] || die "csak https://research.code.hu vagy https://research.code.hu/apps/$app_id engedélyezett."
+    read -r -p "Belső cél-URL (HTTP, pl. http://dashboard:8000): " internal_url || die "megszakítva."
+    valid_http_url "$internal_url" && [[ "$internal_url" == http://* && "$internal_url" == *:*:* ]] || die "belső HTTP URL szükséges explicit porttal."
+    [[ "$internal_url" != http://127.0.0.1:* && "$internal_url" != http://localhost:* ]] || die "a 127.0.0.1 a Caddy konténerét jelentené. Használj Docker-hálózati célcímet (AI-Dashboard: :8000)."
+    read -r -p "Docker-hálózat (üres, ha nem szükséges): " network || die "megszakítva."
+    [[ -z "$network" || "$network" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$ ]] || die "érvénytelen hálózatnév."
+    count="$(scalar -v "v_url=$public_url" -v "v_app=$app_id" <<'SQL'
+SELECT count(*) FROM application_targets WHERE public_url = :'v_url' AND application_id <> :'v_app';
+SQL
+)" || die "URL-ütközés ellenőrzése sikertelen."
+    [[ "$count" == 0 ]] || die "ez a nyilvános URL már foglalt."
+    confirm "Elmented az alkalmazás elérhetőségét?" || { info "Megszakítva."; return; }
+    sql -v "v_app=$app_id" -v "v_name=$app_name" -v "v_public=$public_url" -v "v_internal=$internal_url" -v "v_net=$network" <<'SQL'
+BEGIN;
+INSERT INTO applications (id, name)
+SELECT :'v_app', :'v_name' WHERE :'v_name' <> ''
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO application_targets (application_id, public_url, upstream_origin, docker_network)
+VALUES (:'v_app', :'v_public', :'v_internal', NULLIF(:'v_net',''))
+ON CONFLICT (application_id) DO UPDATE
+SET public_url = EXCLUDED.public_url,
+    upstream_origin = EXCLUDED.upstream_origin,
+    docker_network = EXCLUDED.docker_network;
+COMMIT;
+SELECT application_id, public_url, upstream_origin, docker_network
+FROM application_targets WHERE application_id = :'v_app';
+SQL
+    render_gateway
+    info "URL mentve, a proxy konfiguráció előállt. Az aktiválás külön lépés."
+}
+
+edit_app_url() {
+    choose_app
+    save_app_target "$SELECTED_APP_ID"
+}
+
 create_app() {
     local app_id app_name count
     read -r -p "Új alkalmazásazonosító (kisbetű/szám/kötőjel): " app_id || die "megszakítva."
@@ -139,12 +219,7 @@ SQL
 )" || die "alkalmazás lekérdezése sikertelen."
     [[ "$count" == 0 ]] || die "ilyen alkalmazás már létezik."
     confirm "Létrehozod az alkalmazást: $app_id ($app_name)?" || { info "Megszakítva."; return; }
-    sql -v "v_app=$app_id" -v "v_name=$app_name" <<'SQL'
-BEGIN;
-INSERT INTO applications (id, name) VALUES (:'v_app', :'v_name');
-COMMIT;
-SELECT id, name FROM applications WHERE id = :'v_app';
-SQL
+    save_app_target "$app_id" "$app_name"
 }
 
 show_user_apps() {
@@ -214,8 +289,8 @@ SQL
 info "Secure Login — helyi adminisztráció (N:M)"
 info "Az adatbázis a jelenlegi Docker Compose-projekt 'db' szolgáltatása."
 while true; do
-    printf '\n1) Felhasználók listázása\n2) Jogosultsági szint módosítása\n3) Alkalmazások listázása\n4) Új alkalmazás felvétele\n5) Alkalmazás hozzárendelése\n6) Alkalmazás-hozzáférés visszavonása\n7) Felhasználó alkalmazásai\n0) Kilépés\n'
-    read -r -p "Művelet [0-7]: " op || { info "Kilépés."; exit 0; }
+    printf '\n1) Felhasználók listázása\n2) Jogosultsági szint módosítása\n3) Alkalmazások listázása\n4) Új alkalmazás felvétele\n5) Alkalmazás hozzárendelése\n6) Alkalmazás-hozzáférés visszavonása\n7) Felhasználó alkalmazásai\n8) Alkalmazás URL módosítása\n0) Kilépés\n'
+    read -r -p "Művelet [0-8]: " op || { info "Kilépés."; exit 0; }
     case "$op" in
       0) info "Kilépés."; exit 0 ;;
       1) list_users ;;
@@ -225,6 +300,7 @@ while true; do
       5) grant ;;
       6) revoke ;;
       7) show_user_apps ;;
+      8) edit_app_url ;;
       *) info "Érvénytelen menüpont." ;;
     esac
 done

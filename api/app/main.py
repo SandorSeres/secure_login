@@ -1,3 +1,4 @@
+from datetime import datetime
 from fastapi import FastAPI, Request, Depends, status, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,8 +28,13 @@ from .security import (
 )
 from .rate_limit import limiter, is_locked, record_failed_login, reset_fail
 from .deps import get_db, current_user
+from .profile_apps import applications_for_user
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+# Additive, opt-in application gateway endpoints only.
+from .application_access import router as application_access_router
+app.include_router(application_access_router)
 
 # Statikus fájlok
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -196,6 +202,9 @@ async def login(request: Request, db: SASession = Depends(get_db)):
 
     # sikeres autentikáció
     reset_fail(username, ip)
+    # A friss bejelentkezés új inaktivitási periódust indít.
+    user.last_activity = datetime.utcnow()
+    db.commit()
     session_val = create_session_value(user.username)
     resp = RedirectResponse("/profile", status_code=303)
     set_cookie(resp, settings.SESSION_COOKIE_NAME, session_val, 6 * 60 * 60)  # 6 óra
@@ -207,17 +216,18 @@ async def login(request: Request, db: SASession = Depends(get_db)):
 
 
 @app.get("/profile", response_class=HTMLResponse)
-async def profile(request: Request, user: User = Depends(current_user)):
+async def profile(request: Request, user: User = Depends(current_user), db: SASession = Depends(get_db)):
     # csrf = issue_csrf()
     csrf_token = request.cookies.get(settings.CSRF_COOKIE_NAME) or issue_csrf()
     html = templates.get_template("profile.html").render(
         title="Profil",
         username=user.username,
-        csrf_token=csrf,
-        account_level=getattr(user, "account_level", "Free")
+        csrf_token=csrf_token,
+        account_level=getattr(user, "account_level", "Free"),
+        applications=applications_for_user(db, user.id)
     )
     resp = HTMLResponse(html)
-    set_csrf_cookie(resp, csrf, 3600)
+    set_csrf_cookie(resp, csrf_token, 3600)
     return resp
 
 
@@ -287,11 +297,11 @@ async def reset_password_page(request: Request, token: str):
     csrf_token = request.cookies.get(settings.CSRF_COOKIE_NAME) or issue_csrf()
     html = templates.get_template("reset_password.html").render(
         title="Új jelszó megadása",
-        csrf_token=csrf,
+        csrf_token=csrf_token,
         token=token
     )
     resp = HTMLResponse(html)
-    set_csrf_cookie(resp, csrf, 3600)
+    set_csrf_cookie(resp, csrf_token, 3600)
     return resp
 
 

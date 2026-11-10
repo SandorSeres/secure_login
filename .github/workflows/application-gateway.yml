@@ -1,0 +1,73 @@
+name: Secure Login application gateway regression
+
+on:
+  pull_request:
+    paths:
+      - 'admin.sh'
+      - 'api/app/application_access.py'
+      - 'api/app/main.py'
+      - 'api/app/models.py'
+      - 'api/app/profile_apps.py'
+      - 'api/app/templates/profile.html'
+      - 'caddy/Caddyfile'
+      - 'docker-compose.yaml'
+      - 'scripts/render_app_gateway.py'
+      - 'tests/test_application_gateway.py'
+      - 'tests/test_shared_gateway_routes.py'
+      - 'tests/test_reset_password_csrf.py'
+      - 'tests/test_login_session_regression.py'
+      - 'tests/test_profile_apps.py'
+      - '.github/workflows/application-gateway.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gateway:
+    runs-on: ubuntu-latest
+    env:
+      SECRET_KEY: ci-only-gateway-signing-secret
+      CSRF_KEY: ci-only-csrf-secret
+      DATABASE_URL: sqlite://
+      CADDY_DOMAIN: auth.example.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install existing application dependencies
+        run: python -m pip install -r api/app/requirements.txt
+      - name: Syntax and focused authorization regressions
+        run: |
+          bash -n admin.sh
+          python -m py_compile api/app/application_access.py api/app/models.py scripts/render_app_gateway.py
+          PYTHONPATH=api python -m unittest discover -s tests -p test_application_gateway.py -v
+          PYTHONPATH=api python -m unittest discover -s tests -p test_shared_gateway_routes.py -v
+          python -m unittest discover -s tests -p test_reset_password_csrf.py -v
+          python -m unittest discover -s tests -p test_login_session_regression.py -v
+          PYTHONPATH=api python -m unittest discover -s tests -p test_profile_apps.py -v
+          PYTHONPATH=api python -m unittest discover -s tests -p test_user_application_access.py -v
+      - name: Render fixed-site Caddy gateway
+        run: |
+          printf '%s\n' \
+            'dashboard|https://research.code.hu|http://dashboard:8000|example_dashboard_net' \
+            'research|https://research.code.hu/apps/research|http://research:8205|example_research_net' \
+            | python scripts/render_app_gateway.py
+          grep -q 'forward_auth' caddy/app-gateway-generated/research-gateway.caddy
+          grep -q 'external: true' compose.app-gateway.yaml
+          grep -q 'handle /apps/research/\\*' caddy/app-gateway-generated/research-gateway.caddy
+          grep -q 'uri strip_prefix /apps/research' caddy/app-gateway-generated/research-gateway.caddy
+          grep -q 'handle /_secure-login/redeem' caddy/app-gateway-generated/research-gateway.caddy
+          grep -q 'reverse_proxy http://dashboard:8000' caddy/app-gateway-generated/research-gateway.caddy
+          PG_USER=ci PG_PASSWORD=ci PG_DB=ci SECRET_KEY=ci CSRF_KEY=ci \
+            CADDY_DOMAIN=auth.example.com ACME_EMAIL=ci@example.com \
+            APP_HOST=https://auth.example.com \
+            docker compose -f docker-compose.yaml -f compose.app-gateway.yaml config --quiet
+      - name: Validate Caddy configuration syntax
+        run: |
+          docker run --rm \
+            -e ACME_EMAIL=ci@example.com -e CADDY_DOMAIN=auth.example.com \
+            -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -v "$PWD/caddy/app-gateway-generated:/etc/caddy/app-gateway-generated:ro" \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile

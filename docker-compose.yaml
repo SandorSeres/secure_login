@@ -73,6 +73,7 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL to an ACME contact address}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/app-gateway-generated:/etc/caddy/app-gateway-generated:ro
       - caddy_data:/data
       - caddy_config:/config
     networks: [secure_net]
