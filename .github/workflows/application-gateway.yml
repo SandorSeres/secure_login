@@ -11,6 +11,7 @@ on:
       - 'docker-compose.yaml'
       - 'scripts/render_app_gateway.py'
       - 'tests/test_application_gateway.py'
+      - 'tests/test_shared_gateway_routes.py'
       - '.github/workflows/application-gateway.yml'
   workflow_dispatch:
 
@@ -37,13 +38,18 @@ jobs:
           bash -n admin.sh
           python -m py_compile api/app/application_access.py api/app/models.py scripts/render_app_gateway.py
           PYTHONPATH=api python -m unittest discover -s tests -p test_application_gateway.py -v
+          PYTHONPATH=api python -m unittest discover -s tests -p test_shared_gateway_routes.py -v
           PYTHONPATH=api python -m unittest discover -s tests -p test_user_application_access.py -v
       - name: Render fixed-site Caddy gateway
         run: |
-          printf 'dashboard|https://research.code.hu|http://dashboard:8000|example_dashboard_net\n' \
+          printf '%s\n' \
+            'dashboard|https://research.code.hu|http://dashboard:8000|example_dashboard_net' \
+            'research|https://research.code.hu/apps/research|http://research:8205|example_research_net' \
             | python scripts/render_app_gateway.py
           grep -q 'forward_auth' caddy/app-gateway-generated/research-gateway.caddy
           grep -q 'external: true' compose.app-gateway.yaml
+          grep -q 'handle /apps/research/\\*' caddy/app-gateway-generated/research-gateway.caddy
+          grep -q 'uri strip_prefix /apps/research' caddy/app-gateway-generated/research-gateway.caddy
           grep -q 'handle /_secure-login/redeem' caddy/app-gateway-generated/research-gateway.caddy
           grep -q 'reverse_proxy http://dashboard:8000' caddy/app-gateway-generated/research-gateway.caddy
           PG_USER=ci PG_PASSWORD=ci PG_DB=ci SECRET_KEY=ci CSRF_KEY=ci \
