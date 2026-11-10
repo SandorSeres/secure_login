@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Generate shared research.code.hu routes; no running containers modified.
+"""Render one shared research.code.hu gateway with a root portal and /apps/*.
 
-Input (trusted local DB rows): app_id|public_url|internal_origin|docker_network|legacy_roots.
-Legacy roots reserve root-relative /api, /static etc for one app only.
+The root portal (AI-Dashboard) retains its absolute /api, /static, /assets,
+/ws URLs. Other applications are isolated under /apps/<id>/.
+Rows on stdin: app_id|public_url|internal_origin|docker_network|legacy_roots.
 """
 from __future__ import annotations
 
@@ -20,44 +21,44 @@ OVERLAY = ROOT / "compose.app-gateway.yaml"
 APP_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,62}\Z")
 DNS = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9.-]{0,251}[a-zA-Z0-9]\Z")
 NETWORK = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}\Z")
-ROOT_ROUTE = re.compile(r"/[a-zA-Z0-9][a-zA-Z0-9_-]*\Z")
-RESERVED = {"/_secure-login"}
 
 
-def parse_origin(value: str, scheme: str) -> tuple[str, int | None, str]:
-    parsed = urlsplit(value)
+def parse_url(value: str, scheme: str) -> tuple[str, int | None, str]:
+    if not value or value.strip() != value:
+        raise ValueError("Invalid URL")
+    p = urlsplit(value)
     if (
-        value.strip() != value or parsed.scheme != scheme or not parsed.hostname
-        or not DNS.fullmatch(parsed.hostname) or parsed.username or parsed.password
-        or parsed.query or parsed.fragment
+        p.scheme != scheme or not p.hostname or not DNS.fullmatch(p.hostname)
+        or p.username or p.password or p.query or p.fragment
     ):
         raise ValueError("Invalid URL")
     try:
-        port = parsed.port
+        port = p.port
     except ValueError as exc:
         raise ValueError("Invalid port") from exc
-    return parsed.hostname, port, parsed.path
+    if p.netloc != p.hostname + (f":{port}" if port else ""):
+        raise ValueError("Noncanonical host or port")
+    return p.hostname, port, p.path
 
 
-def validate_row(fields: list[str], shared_host: str) -> tuple[str, str, str, list[str]]:
+def validate_row(fields: list[str], host: str) -> tuple[str, str, str, bool]:
     app, public, upstream, network, roots = fields
     if not APP_ID.fullmatch(app):
         raise ValueError("Invalid application ID")
-    host, public_port, path = parse_origin(public, "https")
-    if host != shared_host or public_port is not None or path != "/" + app:
-        raise ValueError("Public URL must be https://" + shared_host + "/" + app)
-    internal_host, internal_port, internal_path = parse_origin(upstream, "http")
+    external_host, external_port, external_path = parse_url(public, "https")
+    if external_host != host or external_port is not None:
+        raise ValueError("Public address must use shared HTTPS hostname on 443")
+    is_root = external_path in ("", "/")
+    if not is_root and external_path != "/apps/" + app:
+        raise ValueError("App address must be https://" + host + "/apps/" + app)
+    internal_host, internal_port, internal_path = parse_url(upstream, "http")
     if internal_port is None or internal_path or internal_host in {"localhost", "127.0.0.1", "0.0.0.0"}:
-        raise ValueError("Backend must be a reachable container HTTP origin and explicit port")
+        raise ValueError("Backend requires reachable Docker hostname and explicit port")
     if network and not NETWORK.fullmatch(network):
         raise ValueError("Invalid Docker network")
-    aliases = [item.strip() for item in roots.split(",") if item.strip()]
-    if len(aliases) != len(set(aliases)):
-        raise ValueError("Duplicate legacy route")
-    for alias in aliases:
-        if not ROOT_ROUTE.fullmatch(alias) or alias in RESERVED or alias == "/" + app:
-            raise ValueError("Invalid legacy route: " + alias)
-    return app, upstream, network, aliases
+    if roots:
+        raise ValueError("Legacy root aliases not required: root app owns /")
+    return app, upstream, network, is_root
 
 
 def auth_block(app: str) -> str:
@@ -72,47 +73,73 @@ def auth_block(app: str) -> str:
     )
 
 
-def render_site(shared_host: str, rows: list[tuple[str, str, str, list[str]]]) -> str:
-    # Caddy handles only one site per hostname, with mutually exclusive path routes.
-    parts = [f"{shared_host} {{\n", "    encode zstd gzip\n",
-             '    header X-Content-Type-Options "nosniff"\n',
-             '    header Referrer-Policy "no-referrer"\n']
-    for app, upstream, _, aliases in rows:
+def redeem_handler(path: str, app: str, strip: str = "") -> str:
+    lines = [f"    handle {path} {{\n"]
+    if strip:
+        lines.append(f"        uri strip_prefix {strip}\n")
+    lines.extend([
+        "        reverse_proxy api:8000 {\n",
+        f'            header_up X-Gateway-App "{app}"\n',
+        "            header_up Host {host}\n",
+        "        }\n",
+        "    }\n",
+    ])
+    return "".join(lines)
+
+
+def render_site(host: str, rows: list[tuple[str, str, str, bool]]) -> str:
+    parts = [
+        f"{host} {{\n",
+        "    encode zstd gzip\n",
+        '    header X-Content-Type-Options "nosniff"\n',
+        '    header Referrer-Policy "no-referrer"\n',
+    ]
+    root = next((row for row in rows if row[3]), None)
+    for app, upstream, _, is_root in rows:
+        if is_root:
+            parts.append(redeem_handler("/_secure-login/redeem", app))
+            continue
+        prefix = "/apps/" + app
         parts.extend([
-            f"    handle /{app} {{\n",
-            f"        redir /{app}/ 308\n",
+            f"    handle {prefix} {{\n",
+            f"        redir {prefix}/ 308\n",
             "    }\n",
-            f"    handle /{app}/_secure-login/redeem {{\n",
-            f"        uri strip_prefix /{app}\n",
-            "        reverse_proxy api:8000 {\n",
-            f'            header_up X-Gateway-App "{app}"\n',
-            "            header_up Host {host}\n",
+            redeem_handler(prefix + "/_secure-login/redeem", app, prefix),
+            f"    handle {prefix}/* {{\n",
+            auth_block(app),
+            f"        uri strip_prefix {prefix}\n",
+            f"        reverse_proxy {upstream} {{\n",
+            "            flush_interval -1\n",
             "        }\n",
             "    }\n",
-            f"    handle /{app}/* {{\n",
+        ])
+    parts.extend([
+        "    handle /apps/* {\n",
+        '        respond "Application not found" 404\n',
+        "    }\n",
+        "    handle /_secure-login/* {\n",
+        '        respond "Not found" 404\n',
+        "    }\n",
+    ])
+    if root:
+        app, upstream, _, _ = root
+        parts.extend([
+            "    handle {\n",
             auth_block(app),
-            f"        uri strip_prefix /{app}\n",
-            f"        reverse_proxy {upstream}\n",
+            f"        reverse_proxy {upstream} {{\n",
+            "            flush_interval -1\n",
+            "        }\n",
             "    }\n",
         ])
-        for alias in aliases:
-            parts.extend([
-                f"    handle {alias} {{\n",
-                auth_block(app),
-                f"        reverse_proxy {upstream}\n",
-                "    }\n",
-                f"    handle {alias}/* {{\n",
-                auth_block(app),
-                f"        reverse_proxy {upstream}\n",
-                "    }\n",
-            ])
-    parts.extend(['    handle {\n', '        respond "Not found" 404\n', '    }\n', '}\n'])
+    else:
+        parts.extend(["    handle {\n", '        respond "Not found" 404\n', "    }\n"])
+    parts.append("}\n")
     return "".join(parts)
 
 
 def write_atomic(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, encoding="utf-8", delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as tmp:
         tmp.write(content)
         tmp.flush()
         os.fchmod(tmp.fileno(), 0o644)
@@ -121,51 +148,41 @@ def write_atomic(path: Path, content: str) -> None:
 
 
 def main() -> None:
-    shared_host = os.environ.get("APP_GATEWAY_HOST", "research.code.hu")
-    if not DNS.fullmatch(shared_host) or shared_host == os.environ.get("CADDY_DOMAIN", ""):
-        raise ValueError("Invalid shared gateway hostname")
+    host = os.environ.get("APP_GATEWAY_HOST", "research.code.hu")
+    if not DNS.fullmatch(host) or host == os.environ.get("CADDY_DOMAIN", ""):
+        raise ValueError("Invalid shared application hostname")
     rows = []
     for lineno, line in enumerate(sys.stdin, 1):
         if not line.strip():
             continue
         fields = line.rstrip("\r\n").split("|")
         if len(fields) != 5:
-            raise ValueError(f"Invalid catalog row {lineno}")
-        rows.append(validate_row(fields, shared_host))
-    apps = [x[0] for x in rows]
-    if len(apps) != len(set(apps)):
-        raise ValueError("Duplicate app IDs")
-    all_routes = {"/" + a for a in apps}
-    for app, _, _, aliases in rows:
-        for alias in aliases:
-            if alias in all_routes:
-                raise ValueError("Legacy route conflicts with app ID: " + alias)
-            all_routes.add(alias)
-    # Separate check for alias collisions, including exact + subtree.
-    aliases = [a for row in rows for a in row[3]]
-    if len(aliases) != len(set(aliases)):
-        raise ValueError("Two apps claim the same root-relative path")
-    networks = sorted({x[2] for x in rows if x[2]})
-    network_aliases = {network: f"app_network_{index}" for index, network in enumerate(networks, 1)}
+            raise ValueError(f"Invalid registry row {lineno}")
+        rows.append(validate_row(fields, host))
+    app_ids = [row[0] for row in rows]
+    if len(set(app_ids)) != len(app_ids):
+        raise ValueError("Duplicate application ID")
+    if sum(row[3] for row in rows) > 1:
+        raise ValueError("Only one root application may own research.code.hu/")
+    networks = sorted({row[2] for row in rows if row[2]})
+    network_aliases = {network: f"app_network_{i}" for i, network in enumerate(networks, 1)}
     overlay = "services:\n  caddy:\n    networks:\n      - secure_net\n"
     overlay += "".join(f"      - {network_aliases[n]}\n" for n in networks)
     overlay += "networks:\n  secure_net: {}\n"
     overlay += "".join(
-        f"  {network_aliases[n]}:\n    external: true\n    name: {json.dumps(n)}\n"
-        for n in networks
+        f"  {network_aliases[n]}:\n    external: true\n    name: {json.dumps(n)}\n" for n in networks
     )
     OUT.mkdir(parents=True, exist_ok=True)
-    # Remove old per-host files only after complete validation.
     if rows:
-        write_atomic(OUT / "research-gateway.caddy", render_site(shared_host, rows))
+        write_atomic(OUT / "research-gateway.caddy", render_site(host, rows))
     else:
         (OUT / "research-gateway.caddy").unlink(missing_ok=True)
     for old in OUT.glob("*.caddy"):
         if old.name != "research-gateway.caddy":
             old.unlink()
     write_atomic(OVERLAY, overlay)
-    print(f"Generated shared gateway for {len(rows)} application(s) on {shared_host}.")
-    print("No running services changed.")
+    print(f"Generated {len(rows)} app(s) on {host}; root apps: {sum(row[3] for row in rows)}.")
+    print("No running containers or services have been changed.")
 
 
 if __name__ == "__main__":
