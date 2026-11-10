@@ -14,6 +14,7 @@ on:
       - 'tests/test_application_gateway.py'
       - 'tests/test_shared_gateway_routes.py'
       - 'tests/test_reset_password_csrf.py'
+      - 'tests/test_login_session_regression.py'
       - '.github/workflows/application-gateway.yml'
   workflow_dispatch:
 
@@ -42,6 +43,7 @@ jobs:
           PYTHONPATH=api python -m unittest discover -s tests -p test_application_gateway.py -v
           PYTHONPATH=api python -m unittest discover -s tests -p test_shared_gateway_routes.py -v
           python -m unittest discover -s tests -p test_reset_password_csrf.py -v
+          python -m unittest discover -s tests -p test_login_session_regression.py -v
           PYTHONPATH=api python -m unittest discover -s tests -p test_user_application_access.py -v
       - name: Render fixed-site Caddy gateway
         run: |
