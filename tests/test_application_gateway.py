@@ -38,7 +38,7 @@ class FakeRedis:
         return self.store.pop(key, None)
 
 
-def request(*, host="dashboard.example.com", cookie=None, method="GET", origin=None):
+def request(*, host="dashboard.example.com", cookie=None, method="GET", origin=None, upgrade=None):
     headers = [(b"host", host.encode()), (b"x-gateway-app", b"dashboard")]
     if cookie:
         headers.append((b"cookie", cookie.encode()))
@@ -46,6 +46,8 @@ def request(*, host="dashboard.example.com", cookie=None, method="GET", origin=N
         headers.append((b"x-forwarded-method", method.encode()))
     if origin:
         headers.append((b"origin", origin.encode()))
+    if upgrade:
+        headers.append((b"x-original-upgrade", upgrade.encode()))
     return Request({
         "type": "http", "method": "GET", "path": "/",
         "headers": headers, "query_string": b"",
@@ -141,6 +143,24 @@ class GatewayAccessTests(unittest.TestCase):
         self.assertEqual(
             gateway.authorize(
                 request(cookie=cookie, method="POST", origin="https://dashboard.example.com"),
+                db=self.db,
+            ).status_code,
+            204,
+        )
+
+    def test_websocket_upgrade_requires_same_origin(self):
+        self.grant()
+        response = gateway.redeem(request(), ticket=self.ticket(), db=self.db)
+        cookie = response.headers["set-cookie"].split(";", 1)[0]
+        with self.assertRaises(HTTPException) as error:
+            gateway.authorize(
+                request(cookie=cookie, upgrade="websocket", origin="https://evil.example.com"),
+                db=self.db,
+            )
+        self.assertEqual(error.exception.status_code, 403)
+        self.assertEqual(
+            gateway.authorize(
+                request(cookie=cookie, upgrade="websocket", origin="https://dashboard.example.com"),
                 db=self.db,
             ).status_code,
             204,
