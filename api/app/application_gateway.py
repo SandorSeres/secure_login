@@ -5,7 +5,7 @@ App routes use /apps/<id>/... and therefore require prefix-compatible apps.
 """
 from __future__ import annotations
 
-import ipaddress
+import os
 import re
 from urllib.parse import urlsplit
 
@@ -29,7 +29,7 @@ _HOP_HEADERS = frozenset({
 
 
 def validate_origin(origin: str) -> str:
-    """Strictly require HTTP to an explicit private IP and port, no credentials."""
+    """Require an operator-allowlisted, exact upstream origin (no SSRF)."""
     if not isinstance(origin, str) or not origin or origin.strip() != origin:
         raise ValueError("Invalid application target")
     parts = urlsplit(origin)
@@ -38,15 +38,15 @@ def validate_origin(origin: str) -> str:
         or parts.username or parts.password or parts.path
         or parts.query or parts.fragment or not parts.port
     ):
-        raise ValueError("Application target must be http://private-ip:port")
-    try:
-        ip = ipaddress.ip_address(parts.hostname)
-    except ValueError as exc:
-        raise ValueError("Application target must use an IP literal") from exc
-    if not (ip.is_private or ip.is_loopback) or ip.is_multicast or ip.is_unspecified:
-        raise ValueError("Application target must be private")
-    return f"http://{parts.hostname}:{parts.port}"
-
+        raise ValueError("Application target must be http://hostname:port")
+    allowed = frozenset(
+        item.strip()
+        for item in os.environ.get("APP_GATEWAY_ALLOWED_ORIGINS", "").split(",")
+        if item.strip()
+    )
+    if origin not in allowed:
+        raise ValueError("Application target is not allowlisted")
+    return origin
 
 def authorized_target(db: Session, user: User, app_id: str) -> str:
     if not _APP_ID.fullmatch(app_id):
