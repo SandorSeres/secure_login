@@ -35,6 +35,15 @@ sql() {
 }
 scalar() { sql -qAt "$@"; }
 
+# Add only the new optional URL registry table. Existing users/apps/grants are untouched.
+sql <<'SQL'
+CREATE TABLE IF NOT EXISTS application_targets (
+    application_id varchar(63) PRIMARY KEY REFERENCES applications(id) ON DELETE CASCADE,
+    public_url varchar(253) NOT NULL UNIQUE,
+    upstream_origin varchar(255) NOT NULL
+);
+SQL
+
 SCHEMA_OK="$(scalar <<'SQL'
 SELECT CASE WHEN
     to_regclass('public.users') IS NOT NULL AND
