@@ -1,3 +1,4 @@
+from datetime import datetime
 from fastapi import FastAPI, Request, Depends, status, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -200,6 +201,9 @@ async def login(request: Request, db: SASession = Depends(get_db)):
 
     # sikeres autentikáció
     reset_fail(username, ip)
+    # A friss bejelentkezés új inaktivitási periódust indít.
+    user.last_activity = datetime.utcnow()
+    db.commit()
     session_val = create_session_value(user.username)
     resp = RedirectResponse("/profile", status_code=303)
     set_cookie(resp, settings.SESSION_COOKIE_NAME, session_val, 6 * 60 * 60)  # 6 óra
@@ -217,11 +221,11 @@ async def profile(request: Request, user: User = Depends(current_user)):
     html = templates.get_template("profile.html").render(
         title="Profil",
         username=user.username,
-        csrf_token=csrf,
+        csrf_token=csrf_token,
         account_level=getattr(user, "account_level", "Free")
     )
     resp = HTMLResponse(html)
-    set_csrf_cookie(resp, csrf, 3600)
+    set_csrf_cookie(resp, csrf_token, 3600)
     return resp
 
 
