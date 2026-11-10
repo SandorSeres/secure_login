@@ -65,7 +65,7 @@ def auth_block(app: str) -> str:
         "            uri /_secure-login/authorize\n"
         f'            header_up X-Gateway-App "{app}"\n'
         "            header_up Host {host}\n"
-        "            header_up X-Forwarded-Method {method}\n"
+        "            header_up X-Forwarded-Method {http.request.method}\n"
         "            header_up X-Original-Upgrade {header.Upgrade}\n"
         "        }\n"
     )
@@ -104,11 +104,13 @@ def render_site(host: str, rows: list[tuple[str, str, str, bool]]) -> str:
             "    }\n",
             redeem_handler(prefix + "/_secure-login/redeem", app, prefix),
             f"    handle {prefix}/* {{\n",
+            "        route {\n",
             auth_block(app),
-            f"        uri strip_prefix {prefix}\n",
-            "        request_header -Cookie\n",
-            f"        reverse_proxy {upstream} {{\n",
-            "            flush_interval -1\n",
+            f"            uri strip_prefix {prefix}\n",
+            "            request_header -Cookie\n",
+            f"            reverse_proxy {upstream} {{\n",
+            "                flush_interval -1\n",
+            "            }\n",
             "        }\n",
             "    }\n",
         ])
@@ -124,9 +126,12 @@ def render_site(host: str, rows: list[tuple[str, str, str, bool]]) -> str:
         app, upstream, _, _ = root
         parts.extend([
             "    handle {\n",
+            "        route {\n",
             auth_block(app),
-            f"        reverse_proxy {upstream} {{\n",
-            "            flush_interval -1\n",
+            "            request_header -Cookie\n",
+            f"            reverse_proxy {upstream} {{\n",
+            "                flush_interval -1\n",
+            "            }\n",
             "        }\n",
             "    }\n",
         ])
