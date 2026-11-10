@@ -54,6 +54,12 @@ def request(*, host="research.code.hu", cookie=None, method="GET", origin=None, 
     })
 
 
+def request_with_app(app, *, cookie=None):
+    req = request(cookie=cookie)
+    headers = [(k, (app.encode() if k == b"x-gateway-app" else v)) for k, v in req.scope["headers"]]
+    return Request({**req.scope, "headers": headers})
+
+
 class GatewayAccessTests(unittest.TestCase):
     def setUp(self):
         self.engine = create_engine(
@@ -96,6 +102,36 @@ class GatewayAccessTests(unittest.TestCase):
         response = gateway.launch("dashboard", user=self.user, db=self.db)
         self.assertEqual(response.status_code, 303)
         return parse_qs(urlsplit(response.headers["location"]).query)["ticket"][0]
+
+    def test_named_app_ticket_cannot_authorize_root_dashboard(self):
+        self.grant()
+        self.db.add(Application(id="research", name="Research"))
+        self.db.add(ApplicationTarget(
+            application_id="research",
+            public_url="https://research.code.hu/apps/research",
+            upstream_origin="http://research:8205",
+            docker_network=None,
+        ))
+        self.db.flush()
+        self.db.add(UserApplicationAccess(user_id=self.user.id, application_id="research"))
+        self.db.commit()
+
+        redirect = gateway.launch("research", user=self.user, db=self.db)
+        self.assertIn("/apps/research/_secure-login/redeem", redirect.headers["location"])
+        ticket = parse_qs(urlsplit(redirect.headers["location"]).query)["ticket"][0]
+        response = gateway.redeem(
+            request_with_app("research"),
+            ticket=ticket, db=self.db,
+        )
+        self.assertEqual(response.headers["location"], "/apps/research/")
+        research_cookie = response.headers["set-cookie"].split(";", 1)[0]
+        self.assertEqual(
+            gateway.authorize(request_with_app("research", cookie=research_cookie), db=self.db).status_code,
+            204,
+        )
+        with self.assertRaises(HTTPException) as failure:
+            gateway.authorize(request(cookie=research_cookie), db=self.db)
+        self.assertEqual(failure.exception.status_code, 401)
 
     def test_no_grant_is_denied(self):
         with self.assertRaises(HTTPException) as error:
