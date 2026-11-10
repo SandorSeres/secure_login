@@ -45,9 +45,13 @@ def render_site(app_id: str, public: str, upstream: str) -> str:
     if not APP_ID.fullmatch(app_id):
         raise ValueError("Invalid app id")
     host, public_port = parse_origin(public, scheme="https")
-    _, upstream_port = parse_origin(upstream, scheme="http")
+    upstream_host, upstream_port = parse_origin(upstream, scheme="http")
     if upstream_port is None:
         raise ValueError("Explicit upstream port is required")
+    if upstream_host in {"localhost", "127.0.0.1", "0.0.0.0"}:
+        raise ValueError("Container upstream cannot be loopback")
+    if public_port is not None:
+        raise ValueError("Public HTTPS origin must use standard port 443")
     if host in {"localhost", "127.0.0.1"}:
         raise ValueError("Public host must not be loopback")
     if host == os.environ.get("CADDY_DOMAIN", "").lower():
@@ -70,6 +74,7 @@ def render_site(app_id: str, public: str, upstream: str) -> str:
         "            uri /_secure-login/authorize\n"
         f'            header_up X-Gateway-App "{app_id}"\n'
         "            header_up Host {host}\n"
+        "            header_up X-Original-Upgrade {header.Upgrade}\n"
         "        }\n"
         f"        reverse_proxy {upstream}\n"
         "    }\n"
