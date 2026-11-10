@@ -52,7 +52,10 @@ def validate_row(fields: list[str], host: str) -> tuple[str, str, str, bool]:
     if not is_root and external_path != "/apps/" + app:
         raise ValueError("App address must be https://" + host + "/apps/" + app)
     internal_host, internal_port, internal_path = parse_url(upstream, "http")
-    if internal_port is None or internal_path or internal_host in {"localhost", "127.0.0.1", "0.0.0.0"}:
+    if (internal_port is None or internal_path
+            or internal_host == "localhost"
+            or internal_host.startswith("127.")
+            or internal_host in {"0.0.0.0", "::", "[::]"}):
         raise ValueError("Backend requires reachable Docker hostname and explicit port")
     if network and not NETWORK.fullmatch(network):
         raise ValueError("Invalid Docker network")
@@ -60,13 +63,22 @@ def validate_row(fields: list[str], host: str) -> tuple[str, str, str, bool]:
 
 
 def auth_block(app: str) -> str:
+    # request_header, not header_up: the value has to be gone before the
+    # forward_auth subrequest, which is built from the incoming headers and
+    # would otherwise carry a client-sent one straight to authorize.
     return (
+        "        request_header X-Gateway-App " + app + "\n"
         "        forward_auth api:8000 {\n"
         "            uri /_secure-login/authorize\n"
-        f'            header_up X-Gateway-App "{app}"\n'
         "            header_up Host {host}\n"
         "            header_up X-Forwarded-Method {http.request.method}\n"
         "            header_up X-Original-Upgrade {header.Upgrade}\n"
+        # The subrequest must stay an ordinary HTTP GET. Caddy copies the
+        # Upgrade header, and Secure Login serves no WebSocket: uvicorn would
+        # refuse the handshake with 403 and every upgraded request would fail
+        # to authorize. The real request is proxied separately, still upgraded.
+        "            header_up -Connection\n"
+        "            header_up -Upgrade\n"
         "        }\n"
     )
 
@@ -91,6 +103,10 @@ def render_site(host: str, rows: list[tuple[str, str, str, bool]]) -> str:
         "    encode zstd gzip\n",
         '    header X-Content-Type-Options "nosniff"\n',
         '    header Referrer-Policy "no-referrer"\n',
+        # A client must never decide this header, so every route overwrites
+        # it with the value this host was rendered for. Dropping it here would
+        # not be enough: forward_auth builds its subrequest from the incoming
+        # headers, so the value would arrive at authorize unset.
     ]
     root = next((row for row in rows if row[3]), None)
     for app, upstream, _, is_root in rows:

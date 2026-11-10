@@ -1,9 +1,9 @@
-# 🔐 Secure Login System — FastAPI + Nginx + PostgreSQL
+# 🔐 Secure Login System — FastAPI + Caddy + PostgreSQL
 
 Ez a projekt egy **biztonságos bejelentkezési és regisztrációs rendszer**, amely modern webes stackre épül:
 
 - [FastAPI](https://fastapi.tiangolo.com/) — backend API
-- [Nginx](https://nginx.org/) — reverse proxy
+- [Caddy](https://caddyserver.com/) — reverse proxy (automatikus HTTPS)
 - [PostgreSQL](https://www.postgresql.org/) — adatbázis
 - [SQLAlchemy](https://www.sqlalchemy.org/) — ORM
 - [Jinja2](https://jinja.palletsprojects.com/) — sablonmotor
@@ -14,7 +14,7 @@ Ez a projekt egy **biztonságos bejelentkezési és regisztrációs rendszer**, 
 ## 🧾 Fő funkciók
 
 - ✅ Felhasználó regisztráció és bejelentkezés
-- ✅ Biztonságos jelszókezelés (bcrypt hash)
+- ✅ Biztonságos jelszókezelés (Argon2 hash)
 - ✅ Session alapú authentikáció
 - ✅ Inaktivitás alapú **session timeout**
 - ✅ Felhasználói fiók szintek (Free / Pro / Enterprise)
@@ -31,7 +31,7 @@ Ez a projekt egy **biztonságos bejelentkezési és regisztrációs rendszer**, 
 1. A felhasználó megadja a felhasználónevét, e-mail címét és jelszavát a `/register` oldalon.
 2. A jelszó a backendben validálásra kerül:
    - hossza, kis/nagybetű, szám, speciális karakter.
-3. A jelszót a rendszer **bcrypt** segítségével titkosítja.
+3. A jelszót a rendszer **Argon2** segítségével titkosítja.
 4. Az új felhasználó **alapértelmezett jogosultsága**: `Free`.
 5. Sikeres regisztráció után a rendszer visszairányít a login oldalra.
 
@@ -39,7 +39,7 @@ Ez a projekt egy **biztonságos bejelentkezési és regisztrációs rendszer**, 
 
 ## 🔑 Bejelentkezés folyamata
 
-1. A felhasználó bejelentkezik a `/` oldalon.
+1. A felhasználó bejelentkezik a `/` oldalon (a regisztráció ugyanitt van).
 2. A backend ellenőrzi a megadott jelszót a hash ellen.
 3. Siker esetén:
    - Session cookie kerül beállításra.
@@ -74,12 +74,24 @@ Ez a projekt egy **biztonságos bejelentkezési és regisztrációs rendszer**, 
 A rendszer minden authentikált kérésnél:
 
 - ellenőrzi a `last_activity` mezőt,
-- ha az utolsó aktivitás óta eltelt idő meghaladja a beállított limitet (pl. 30 perc),
-- a session érvénytelenné válik,
-- a felhasználót kijelentkezteti,
-- átirányítja a login oldalra.
+- ha az utolsó aktivitás óta eltelt idő meghaladja a beállított limitet
+  (alapértelmezés szerint 10 perc), a session érvénytelenné válik,
+- a felhasználót kijelentkezteti és a login oldalra irányítja.
 
-👉 A timeout beállítása konfigurálható (`SESSION_TIMEOUT_MINUTES`).
+A session **a szerveren is nyilvántartott** (Redis): a kilépés, a jelszó
+megváltoztatása és a szintmódosítás a már kiállított sütit azonnal
+visszavonja — a süti önmagában nem tart egy munkamenetet érvényben.
+
+A kilépés mindig **csak azt az egy sessiont** ér véget, amelyikből
+kattintották, így egy másik eszköz bejelentkezve marad. A jelszó
+megváltoztatása és a szintmódosítás a felhasználó **minden** sessionjét
+megszünteti. Mindegyik sessionhez tartozik egy scope azonosító is: az
+ ezzel a belépéssel kiállított alkalmazás sütik ezen a kötődnek, ezért
+ egy alkalmazás süti sosem élheti túl a loginját, ami létrehozta.
+
+👉 Inaktivitási limit: `SESSION_TIMEOUT_MINUTES` (perc).
+👉 A süti abszolút élettartama: `SESSION_COOKIE_TTL_SECONDS` (mp).
+👉 Az alkalmazás gateway süti élettartama: `APP_SESSION_TTL_SECONDS` (mp).
 
 ---
 
@@ -88,6 +100,12 @@ A rendszer minden authentikált kérésnél:
 - `Free` – alapfunkciók
 - `Pro` – bővített szolgáltatások
 - `Enterprise` – korlátlan hozzáférés
+
+A szintet a `POST /admin/set_level` végpont módosíthatja, de csak hiteles
+adminisztrátornak: a kérés CSRF-mezőt és érvényes sessiont kér, a szint a
+fenti három egyike lehet, és a változás az érintett felhasználó minden élő
+sessionjét visszavonja. Adminisztrátornak a `ADMIN_USERNAMES` (pontos
+felhasználónevek, vesszővel elválasztva) vagy az `Enterprise` szint számít.
 
 ---
 
@@ -103,12 +121,12 @@ A rendszer minden authentikált kérésnél:
 
 ## 🧯 Biztonsági intézkedések
 
-- **HTTPS** – Let's Encrypt támogatással (Nginx certbot integráció)
+- **HTTPS** – automatikus Let's Encrypt tanúsítvány (Caddy)
 - **Session cookie**: `HttpOnly`, `Secure`, `SameSite=Strict`
 - **CSRF token** minden formhoz
 - **Rate limiting** brute-force támadás ellen
 - **XSS védelem**: CSP header + Jinja escaping
-- **Password hashing** bcrypt-tel
+- **Password hashing** Argon2-vel
 - **Unicode normalizálás** jelszavaknál
 - **Email reset flow** redis alapú token lejárattal
 
@@ -116,22 +134,25 @@ A rendszer minden authentikált kérésnél:
 
 ## ⏳ Inaktivitás kezelése
 
-- minden kérés frissíti a `last_activity` mezőt,
-- ha lejárt: session törlés és login redirect,
-- timeout érték konfigurálható.
+- az aktivitást a rendszer legfeljebb percenként írja vissza,
+- ha lejárt: a session törlődik és login redirect történik,
+- az érték konfigurálható (`SESSION_TIMEOUT_MINUTES`).
 
 ---
 
 ## 📦 Telepítés
 
 ```bash
-git clone https://github.com/<YOUR_USERNAME>/secure_login.git
-cd secure_login
-cp .env.example .env
-docker-compose up -d --build
+git clone <YOUR_REPO_URL> secure-login
+cd secure-login
+# Hozd létre a helyi, nem versionált .env fájlt: SECRET_KEY, CSRF_KEY,
+# PG_USER, PG_PASSWORD, PG_DB, CADDY_DOMAIN, ACME_EMAIL, SMTP_*
+# Titkos kulcsokhoz: openssl rand -hex 32
+docker compose up -d --build
 ```
 
-👉 Alapértelmezett port: http://localhost:80
+👉 A publikus portot a `CADDY_DOMAIN` DNS bejegyzés és a Caddy automatic
+HTTPS állítja be (80 → 443 redirect).
 
 ---
 
@@ -172,3 +193,28 @@ MIT License — Szabadon felhasználható és bővíthető.
 ---
 
 Készítette: **San d'Or** 🚀
+
+---
+
+## 🐳 Futtatás és tesztelés Dockerben
+
+```bash
+docker compose up -d --build            # db + redis + api + caddy
+docker compose ps
+docker compose logs --no-color api caddy
+```
+
+Unit és regression tesztek (elparzeló SQLite, nem nyúl az éles adatbázishoz):
+
+```bash
+docker build -t secure-login-api:test ./api
+docker run --rm -v "$PWD:/work" -w /work \
+  -e PYTHONPATH=/work/api -e SECRET_KEY=test-only -e CSRF_KEY=test-only-csrf \
+  -e DATABASE_URL=sqlite:// secure-login-api:test \
+  python -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+A `./api` image a forrást az `/app/app` csomagba másolja, ezért a tesztek a
+`PYTHONPATH=/work/api` beállítással az alairásodatol betöltött kódot
+vizsgalják. Az éles `./.env` fájl a contenerben nincs jelen, igy a teszt
+kornyezet nem ervenytelenitheti az appot.

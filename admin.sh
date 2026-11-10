@@ -156,10 +156,17 @@ SQL
 
 render_gateway() {
     command -v python3 >/dev/null || die "a konfiguráció generálásához python3 szükséges."
-    sql -qAt -F '|' <<'SQL' | python3 scripts/render_app_gateway.py
+    # A sorokat előbb külön gyűjtjük össze: ha a lekérdezés meghal, a generátor
+    # le sem fut, így egy elírt SQL vagy egy üres adatbázis nem törölheti a
+    # futó konfigurációt -- a hiba látható marad.
+    local rows
+    rows="$(sql -qAt -F '|' <<'SQL'
 SELECT application_id, public_url, upstream_origin, COALESCE(docker_network, '')
 FROM application_targets ORDER BY application_id;
 SQL
+)" || die "az alkalmazás-cél lekérdezése sikertelen, a konfiguráció nem módosult."
+    [[ -n "$rows" ]] || die "nincs egyetlen alkalmazás-cél sem, a konfiguráció nem módosult."
+    printf '%s\n' "$rows" | python3 scripts/render_app_gateway.py || die "a generálás sikertelen."
 }
 
 save_app_target() {

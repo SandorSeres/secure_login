@@ -17,12 +17,27 @@ class LoginSessionRegressionTests(unittest.TestCase):
     def test_login_resets_idle_timestamp_before_issuing_cookie(self):
         fn = function("login")
         src = ast.get_source_segment(SOURCE.read_text(encoding="utf-8"), fn)
-        self.assertIn("user.last_activity = datetime.utcnow()", src)
+        # A deprecált datetime.utcnow() helyett a utc_now() segédfüggvényt
+        # használjuk; a szándék változatlan: a friss login új periódust indít.
+        self.assertIn("user.last_activity = utc_now()", src)
         self.assertIn("db.commit()", src)
-        self.assertLess(src.index("user.last_activity = datetime.utcnow()"),
-                        src.index("session_val = create_session_value(user.username)"))
+        self.assertLess(src.index("user.last_activity = utc_now()"),
+                        src.index("session_val = create_session_value(user.username, jti)"))
         self.assertLess(src.index("db.commit()"),
-                        src.index("session_val = create_session_value(user.username)"))
+                        src.index("session_val = create_session_value(user.username, jti)"))
+
+    def test_login_registers_a_revocable_session_before_the_cookie(self):
+        fn = function("login")
+        src = ast.get_source_segment(SOURCE.read_text(encoding="utf-8"), fn)
+        self.assertIn("jti = new_jti()", src)
+        self.assertLess(src.index("register_session(user.username, jti"),
+                        src.index("session_val = create_session_value(user.username, jti)"))
+
+    def test_logout_revokes_the_server_side_session(self):
+        fn = function("logout")
+        src = ast.get_source_segment(SOURCE.read_text(encoding="utf-8"), fn)
+        self.assertIn("revoke_session(verified[0], verified[1])", src)
+        self.assertNotIn("revoke_all_sessions(user.username)", src)
 
     def test_profile_uses_defined_csrf_token(self):
         fn = function("profile")

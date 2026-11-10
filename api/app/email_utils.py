@@ -1,6 +1,9 @@
+import logging
 from email.message import EmailMessage
 import smtplib
 from .config import settings
+
+_log = logging.getLogger(__name__)
 
 def send_reset_email(to_email: str, token: str) -> bool:
     try:
@@ -28,6 +31,7 @@ def send_reset_email(to_email: str, token: str) -> bool:
 
         return True
     except Exception as e:
-        print("[email_utils] email send failed:", e)
+        # A ciphertext/SMTP hiba soha nem kerül a kliens felé; a token sem.
+        _log.warning("password reset email delivery failed: %s", type(e).__name__)
         return False
 

@@ -1,5 +1,9 @@
 .env
 
+# Local build artifacts
+__pycache__/
+*.pyc
+
 # Operator-generated per-application gateway configuration
 /caddy/app-gateway-generated/*.caddy
 /compose.app-gateway.yaml

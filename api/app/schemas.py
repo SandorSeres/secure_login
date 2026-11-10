@@ -32,3 +32,16 @@ class ResetPasswordIn(BaseModel):
     def pw_rules(cls, v):  # ugyanaz a szabály
         return _validate_password(v)
 
+
+class SetLevelIn(BaseModel):
+    """Allowed account levels; anything else is rejected before the DB write."""
+    username: str
+    level: str
+
+    @field_validator("level")
+    @classmethod
+    def level_is_known(cls, v: str) -> str:
+        if v not in ("Free", "Pro", "Enterprise"):
+            raise ValueError("unknown level")
+        return v
+

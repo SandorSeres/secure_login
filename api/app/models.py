@@ -5,6 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from .config import settings
+from .timestamps import utc_now
 
 Base = declarative_base()
 engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
@@ -16,9 +17,9 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(256))
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True) 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     account_level: Mapped[str] = mapped_column(String(32), default="Free")  
-    last_activity = mapped_column(DateTime, default=datetime.utcnow)
+    last_activity = mapped_column(DateTime, default=utc_now)
 
 
 # Independent application catalog and user-to-application grants.

@@ -5,6 +5,7 @@ from itsdangerous import TimestampSigner, BadSignature, SignatureExpired
 from passlib.hash import argon2
 from fastapi import Request, HTTPException, status
 from .config import settings
+from .session_store import new_jti
 
 # Password hashing
 def hash_password(pw: str) -> str:
@@ -21,15 +22,19 @@ _session_signer = TimestampSigner(settings.SECRET_KEY)
 CSRF_TTL = 60 * 60  # 1 hour
 SESSION_TTL = 60 * 60 * 6  # 6 hours
 
-def create_session_value(username: str) -> str:
-    payload = f"{username}|{int(time.time())}"
+def create_session_value(username: str, jti: Optional[str] = None) -> str:
+    """Sign a (username, jti) pair. The jti is what makes a session revocable."""
+    payload = f"{username}|{jti or new_jti()}"
     return _session_signer.sign(payload).decode()
 
-def verify_session_value(value: str) -> Optional[str]:
+def verify_session_value(value: str) -> Optional[tuple[str, str]]:
+    """Return (username, jti) for a structurally valid, unexpired cookie."""
     try:
         raw = _session_signer.unsign(value, max_age=SESSION_TTL).decode()
-        username, issued = raw.split("|")
-        return username
+        username, jti = raw.split("|", 1)
+        if not username or not jti:
+            return None
+        return username, jti
     except (BadSignature, SignatureExpired):
         return None
 

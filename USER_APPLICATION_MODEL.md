@@ -60,8 +60,9 @@ with SessionLocal() as db:
 **Security boundary:** These tables only **store** associations. They do
 not implement authorization or expose any endpoint for managing grants.
 In particular, simply having a row does **not** make an application
-accessible through Secure Login. Authorization enforcement and an admin
-management UI are intentionally outside this change's scope.
+accessible through Secure Login. Enforcement happens in the opt-in
+application gateway (`docs/APP_GATEWAY.md`) and in the read-only profile
+listing (`api/app/profile_apps.py`).
 
 ## Verification
 

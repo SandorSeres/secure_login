@@ -1,24 +1,20 @@
-from datetime import datetime
 from fastapi import FastAPI, Request, Depends, status, HTTPException
+from fastapi import Form
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from fastapi import Form
 from .token_store import create_reset_token, verify_reset_token, invalidate_reset_token
 from .email_utils import send_reset_email
-from .security import hash_password
-from urllib.parse import quote
-
-
 from starlette.responses import Response as StarletteResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy.orm import Session as SASession
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 from urllib.parse import quote, unquote
 
 from .config import settings
 from .models import Base, engine, SessionLocal, User
-from .schemas import RegisterIn, ResetPasswordIn
+from .schemas import RegisterIn, ResetPasswordIn, SetLevelIn
 from .security import (
     hash_password,
     verify_password,
@@ -29,6 +25,25 @@ from .security import (
 from .rate_limit import limiter, is_locked, record_failed_login, reset_fail
 from .deps import get_db, current_user
 from .profile_apps import applications_for_user
+from .session_store import (
+    new_jti,
+    new_scope_id,
+    register_session,
+    revoke_all_sessions,
+    revoke_session,
+    session_scope_id,
+    list_active_session_jtis,
+)
+from .session_cookie import sweep_app_cookies
+from .timestamps import utc_now
+
+# Engedélyezett account szintek (a README szerinti három szint).
+ACCOUNT_LEVELS = ("Free", "Pro", "Enterprise")
+
+# Valós hash-re van szükség, ha a login egy nem létező felhasználónevet kap:
+# így a jelszó-ellenőrzés mindkét ágon ugyanannyi ideig tart.
+DUMMY_HASH = hash_password("Placeholder1!not-a-real-password")
+
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -49,13 +64,6 @@ templates = Environment(
 Base.metadata.create_all(bind=engine)
 
 
-# Rate limit middleware (dekorátorok intézik a limiteket, itt csak továbbengedünk)
-@app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
-    response = await call_next(request)
-    return response
-
-
 # Biztonsági fejlécek
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
@@ -71,7 +79,7 @@ def set_cookie(resp: StarletteResponse, name: str, value: str, max_age: int):
         key=name,
         value=value,
         max_age=max_age,
-        secure=True,
+        secure=settings.COOKIE_SECURE,
         httponly=True,
         samesite="Strict",
         path="/"
@@ -83,7 +91,7 @@ def set_csrf_cookie(resp: StarletteResponse, value: str, max_age: int):
         key=settings.CSRF_COOKIE_NAME,
         value=value,
         max_age=max_age,
-        secure=True,
+        secure=settings.COOKIE_SECURE,
         httponly=False,  # formokba be kell tudni tenni renderkor
         samesite="Strict",
         path="/"
@@ -93,6 +101,18 @@ def set_csrf_cookie(resp: StarletteResponse, value: str, max_age: int):
 def render_template(name: str, **context):
     template = templates.get_template(name)
     return HTMLResponse(template.render(**context))
+
+
+def flash_redirect(message: str) -> RedirectResponse:
+    """303 a loginra, URL-kódolt átvezető üzenettel (fejléc-biztos)."""
+    resp = RedirectResponse("/", status_code=303)
+    resp.set_cookie("flash", quote(message), max_age=6, path="/")
+    return resp
+
+
+def is_admin(user: User) -> bool:
+    allowed = {name.strip() for name in settings.ADMIN_USERNAMES.split(",") if name.strip()}
+    return user.username in allowed or getattr(user, "account_level", None) == "Enterprise"
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -136,9 +156,7 @@ async def register(request: Request, db: SASession = Depends(get_db)):
         )
     except ValidationError:
         msg = "A jelszó nem elég erős. Minimum 10 karakter, kis- és nagybetű, szám és speciális jel szükséges."
-        resp = RedirectResponse("/", status_code=303)
-        resp.set_cookie("flash", quote(msg), max_age=6, path="/")  # URL-encode a fejléc miatt
-        return resp
+        return flash_redirect(msg)
 
     # duplikált felhasználónév vagy e-mail
     exists = db.query(User).filter(
@@ -146,9 +164,7 @@ async def register(request: Request, db: SASession = Depends(get_db)):
     ).first()
     if exists:
         msg = "Ez a felhasználónév vagy e-mail már foglalt."
-        resp = RedirectResponse("/", status_code=303)
-        resp.set_cookie("flash", quote(msg), max_age=6, path="/")
-        return resp
+        return flash_redirect(msg)
 
     # mentés (alap szint: Free)
     u = User(
@@ -162,14 +178,18 @@ async def register(request: Request, db: SASession = Depends(get_db)):
         db.commit()
     except IntegrityError:
         db.rollback()
-        resp = RedirectResponse("/", status_code=303)
-        resp.set_cookie("flash", quote("A felhasználónév vagy e-mail már foglalt."), max_age=5, path="/")
-        return resp
+        msg = "Ez a felhasználónév vagy e-mail már foglalt."
+    else:
+        msg = "Sikeres regisztráció, jelentkezz be!"
 
-    msg = "Sikeres regisztráció, jelentkezz be!"
-    resp = RedirectResponse("/", status_code=303)
-    resp.set_cookie("flash", quote(msg), max_age=6, path="/")
-    return resp
+    # A register válasza formátumában nem különbözik a login válaszától
+    # (303 + flash), így nem használható fiók-felsorolásra. Érvényes
+    # regisztráció után friss CSRF jár a következő bejelentkezéshez.
+    if msg.startswith("Sikeres regisztráció"):
+        resp = flash_redirect(msg)
+        set_csrf_cookie(resp, issue_csrf(), 3600)
+        return resp
+    return flash_redirect(msg)
 
 
 @app.post("/auth/login")
@@ -188,26 +208,33 @@ async def login(request: Request, db: SASession = Depends(get_db)):
     # lockout ellenőrzés
     if is_locked(username, ip):
         msg = "Túl sok sikertelen próbálkozás. Próbáld meg később."
-        resp = RedirectResponse("/", status_code=303)
-        resp.set_cookie("flash", quote(msg), max_age=6, path="/")
-        return resp
+        return flash_redirect(msg)
 
+    # A jelszó-ellenőrzést névtelen blokkra is futtatjuk, hogy a válasz
+    # időigénye és tartalma ne árulja el, létezik-e a felhasználónév.
     user = db.query(User).filter(User.username == username).first()
-    if not user or not verify_password(password, user.password_hash):
+    stored_hash = user.password_hash if user else DUMMY_HASH
+    if not verify_password(password, stored_hash) or user is None:
         record_failed_login(username, ip)
         msg = "Hibás felhasználónév vagy jelszó."
-        resp = RedirectResponse("/", status_code=303)
-        resp.set_cookie("flash", quote(msg), max_age=6, path="/")
-        return resp
+        return flash_redirect(msg)
 
     # sikeres autentikáció
     reset_fail(username, ip)
     # A friss bejelentkezés új inaktivitási periódust indít.
-    user.last_activity = datetime.utcnow()
+    user.last_activity = utc_now()
     db.commit()
-    session_val = create_session_value(user.username)
+    # A süti csak az aláírt (felhasználónév, jti) párt tartalmazza; a jti a
+    # Redisben kap helyet, így a kilépés/jelszócsere azonnal vonhatja vissza.
+    jti = new_jti()
+    # A scope köti össze a sessiont az ezzel a belépéssel kiállított
+    # alkalmazásgateway sütikkel.
+    register_session(user.username, jti, new_scope_id(),
+                     settings.SESSION_COOKIE_TTL_SECONDS)
+    session_val = create_session_value(user.username, jti)
     resp = RedirectResponse("/profile", status_code=303)
-    set_cookie(resp, settings.SESSION_COOKIE_NAME, session_val, 6 * 60 * 60)  # 6 óra
+    set_cookie(resp, settings.SESSION_COOKIE_NAME, session_val,
+               settings.SESSION_COOKIE_TTL_SECONDS)
 
     # új CSRF a következő formokra
     new_csrf = issue_csrf()
@@ -232,7 +259,7 @@ async def profile(request: Request, user: User = Depends(current_user), db: SASe
 
 
 @app.post("/auth/logout")
-async def logout(request: Request):
+async def logout(request: Request, user: User = Depends(current_user)):
     form = await request.form()
     csrf = form.get("csrf_token")
     cookie_csrf = request.cookies.get(settings.CSRF_COOKIE_NAME)
@@ -240,6 +267,14 @@ async def logout(request: Request):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     resp = RedirectResponse("/", status_code=303)
+    # A süti törlése önmagában nem elég: a session és a hozzá tartozó
+    # alkalmazásgateway-sütik visszavonásra kerülnek a szerveren. Csak a
+    # most használt session: egy gépről kilépni nem jelenthet máshol is
+    # kijelentkezést, arra a jelszócsere és a szintmódosítás való.
+    verified = verify_session_value(
+        request.cookies.get(settings.SESSION_COOKIE_NAME, ""))
+    if verified:
+        revoke_session(verified[0], verified[1])
     resp.delete_cookie(settings.SESSION_COOKIE_NAME, path="/")
     new_csrf = issue_csrf()
     set_csrf_cookie(resp, new_csrf, 3600)
@@ -277,7 +312,6 @@ async def forgot_password(request: Request, db: SASession = Depends(get_db)):
     if not user:
         # opcionálisan egy rövid flash (mindig ugyanez a szöveg):
         resp.set_cookie("flash", "Ha létezik fiók, küldtünk e-mailt.", max_age=5, path="/")
-        print("Nincs fiók/email!")
         return resp  
     # token gyártás és elmentés Redisbe (már megvan nálad)
     token = create_reset_token(user.username)
@@ -328,7 +362,6 @@ async def reset_password(request: Request, db: SASession = Depends(get_db)):
         data = ResetPasswordIn(password=new_password)
     except ValidationError:
         # visszaterelés a formra: flash üzenet
-        from urllib.parse import quote
         resp = RedirectResponse(f"/reset-password?token={quote(token)}", status_code=303)
         resp.set_cookie("flash", quote("A jelszó nem elég erős."), max_age=5, path="/")
         return resp
@@ -341,6 +374,10 @@ async def reset_password(request: Request, db: SASession = Depends(get_db)):
     user.password_hash = hash_password(data.password)
     db.commit()
 
+    # Az új jelszóval minden korábbi session és alkalmazáshoz kiállított
+    # gateway süti érvényét veszti.
+    revoke_all_sessions(username)
+
     # token érvénytelenítése
     invalidate_reset_token(token)
 
@@ -350,24 +387,55 @@ async def reset_password(request: Request, db: SASession = Depends(get_db)):
     return resp
 
 
-# Egyszerű admin endpoint az account szint állítására (védd le később!)
+# Admin endpoint az account szint állítására. Csak hiteles admin írhatja át,
+# a szint a három engedélyezett egyike lehet, és a szintváltás levenni az
+# érintett felhasználó minden élő sessionjét.
 @app.post("/admin/set_level")
-async def set_level(username: str, level: str, db: SASession = Depends(get_db)):
-    user = db.query(User).filter(User.username == username).first()
+@limiter.limit("30/hour")
+async def set_level(
+    request: Request,
+    username: str = Form(...),
+    level: str = Form(...),
+    admin: User = Depends(current_user),
+    db: SASession = Depends(get_db),
+):
+    form = await request.form()
+    csrf = form.get("csrf_token")
+    cookie_csrf = request.cookies.get(settings.CSRF_COOKIE_NAME)
+    if not csrf or not cookie_csrf or csrf != cookie_csrf:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    if not is_admin(admin):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    try:
+        data = SetLevelIn(username=username.strip(), level=level)
+    except ValidationError:
+        raise HTTPException(status_code=400, detail="Invalid username or level")
+
+    user = db.query(User).filter(User.username == data.username).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    user.account_level = level
+    if user.account_level == data.level:
+        return {"status": "ok", "new_level": data.level, "sessions_revoked": 0}
+
+    jtis = list_active_session_jtis(user.username)
+    # Az admin a saját scopejét feladja a sweepnek, hogy az ne tiltsa le az
+    # ő alkalmazás sütijét is: a szintváltás rá nem vonatkozik.
+    verified = verify_session_value(
+        request.cookies.get(settings.SESSION_COOKIE_NAME, ""))
+    admin_scope = session_scope_id(admin.username, verified[1]) if verified else None
+    user.account_level = data.level
     db.commit()
-    return {"status": "ok", "new_level": level}
+    # A szintváltás jogosultság-változás, ezért a célszemély minden sessionje
+    # és a velük kiállított gateway süti azonnal érvényét veszti.
+    revoke_all_sessions(user.username)
+    # A session nélküli sütikről nem tudható, kitől származnak.
+    sweep_app_cookies(None, keep=admin_scope)
+    return {"status": "ok", "new_level": data.level, "sessions_revoked": len(jtis)}
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(user: User = Depends(current_user)):
-    html = templates.get_template("dashboard.html").render(
-        title="Dashboard", username=user.username
-    )
-    return HTMLResponse(html)
-
+    return render_template("dashboard.html", title="Dashboard", username=user.username)
 
 @app.get("/health")
 async def health():

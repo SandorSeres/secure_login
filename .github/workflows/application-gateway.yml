@@ -17,6 +17,24 @@ on:
       - 'tests/test_reset_password_csrf.py'
       - 'tests/test_login_session_regression.py'
       - 'tests/test_profile_apps.py'
+      - 'tests/test_admin_gateway_config.py'
+      - 'tests/test_session_revocation.py'
+      - 'api/app/session_store.py'
+      - 'api/app/session_cookie.py'
+      - 'api/app/redis_client.py'
+      - 'api/app/timestamps.py'
+      - 'api/app/main.py'
+      - 'api/app/config.py'
+      - 'api/app/deps.py'
+      - 'api/app/email_utils.py'
+      - 'api/app/rate_limit.py'
+      - 'api/app/schemas.py'
+      - 'api/app/security.py'
+      - 'api/app/token_store.py'
+      - 'api/app/templates/profile.html'
+      - 'README.md'
+      - 'docs/APP_GATEWAY.md'
+      - 'USER_APPLICATION_MODEL.md'
       - '.github/workflows/application-gateway.yml'
   workflow_dispatch:
 
@@ -48,6 +66,7 @@ jobs:
           python -m unittest discover -s tests -p test_login_session_regression.py -v
           PYTHONPATH=api python -m unittest discover -s tests -p test_profile_apps.py -v
           PYTHONPATH=api python -m unittest discover -s tests -p test_user_application_access.py -v
+          PYTHONPATH=api python -m unittest discover -s tests -p test_session_revocation.py -v
       - name: Render fixed-site Caddy gateway
         run: |
           printf '%s\n' \
