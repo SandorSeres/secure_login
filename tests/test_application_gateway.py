@@ -38,7 +38,7 @@ class FakeRedis:
         return self.store.pop(key, None)
 
 
-def request(*, host="dashboard.example.com", cookie=None, method="GET", origin=None, upgrade=None):
+def request(*, host="research.code.hu", cookie=None, method="GET", origin=None, upgrade=None):
     headers = [(b"host", host.encode()), (b"x-gateway-app", b"dashboard")]
     if cookie:
         headers.append((b"cookie", cookie.encode()))
@@ -73,9 +73,10 @@ class GatewayAccessTests(unittest.TestCase):
             Application(id="dashboard", name="Dashboard"),
             ApplicationTarget(
                 application_id="dashboard",
-                public_url="https://dashboard.example.com",
+                public_url="https://research.code.hu/dashboard",
                 upstream_origin="http://dashboard:8000",
                 docker_network=None,
+                legacy_roots="/api,/static,/assets,/ws",
             ),
         ])
         self.db.commit()
@@ -142,7 +143,7 @@ class GatewayAccessTests(unittest.TestCase):
         self.assertEqual(error.exception.status_code, 403)
         self.assertEqual(
             gateway.authorize(
-                request(cookie=cookie, method="POST", origin="https://dashboard.example.com"),
+                request(cookie=cookie, method="POST", origin="https://research.code.hu"),
                 db=self.db,
             ).status_code,
             204,
@@ -160,7 +161,7 @@ class GatewayAccessTests(unittest.TestCase):
         self.assertEqual(error.exception.status_code, 403)
         self.assertEqual(
             gateway.authorize(
-                request(cookie=cookie, upgrade="websocket", origin="https://dashboard.example.com"),
+                request(cookie=cookie, upgrade="websocket", origin="https://research.code.hu"),
                 db=self.db,
             ).status_code,
             204,
