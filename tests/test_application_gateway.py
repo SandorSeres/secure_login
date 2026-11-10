@@ -73,7 +73,7 @@ class GatewayAccessTests(unittest.TestCase):
             Application(id="dashboard", name="Dashboard"),
             ApplicationTarget(
                 application_id="dashboard",
-                public_url="https://research.code.hu/dashboard",
+                public_url="https://research.code.hu",
                 upstream_origin="http://dashboard:8000",
                 docker_network=None,
                 legacy_roots="/api,/static,/assets,/ws",
