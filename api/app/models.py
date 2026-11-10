@@ -58,3 +58,4 @@ class ApplicationTarget(Base):
     )
     upstream_origin: Mapped[str] = mapped_column(String(255), nullable=False)
     public_url: Mapped[str] = mapped_column(String(253), nullable=False, unique=True)
+    docker_network: Mapped[str | None] = mapped_column(String(128), nullable=True)
