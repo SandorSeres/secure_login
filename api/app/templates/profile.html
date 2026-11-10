@@ -3,6 +3,27 @@
 <h1 class="title">👤 Profil</h1>
 <p><strong>Felhasználó:</strong> {{ username }}</p>
 <p>Jelenlegi csomagod: <strong>{{ account_level }}</strong></p>
+<section aria-labelledby="my-applications-title" style="margin:1.5rem 0;">
+  <h2 id="my-applications-title">Alkalmazásaim</h2>
+  {% if applications %}
+  <ul style="list-style:none;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:0.75rem;">
+    {% for application in applications %}
+    <li style="padding:1rem;border:1px solid #374151;border-radius:0.75rem;min-width:0;overflow-wrap:anywhere;">
+      <strong>{{ application.name }}</strong>
+      {% if application.launchable %}
+      <div style="margin-top:0.75rem;">
+        <a class="btn" href="/applications/{{ application.id }}/launch">Megnyitás</a>
+      </div>
+      {% else %}
+      <p>Az alkalmazás elérése még nincs beállítva.</p>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>Jelenleg nincs hozzád rendelt alkalmazás.</p>
+  {% endif %}
+</section>
 <form method="post" action="/auth/logout">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <button class="btn danger" type="submit">Kijelentkezés</button>
