@@ -6,8 +6,9 @@ on:
       - 'admin.sh'
       - 'api/app/application_access.py'
       - 'api/app/main.py'
-      - 'api/app/main.py'
       - 'api/app/models.py'
+      - 'api/app/profile_apps.py'
+      - 'api/app/templates/profile.html'
       - 'caddy/Caddyfile'
       - 'docker-compose.yaml'
       - 'scripts/render_app_gateway.py'
@@ -15,6 +16,7 @@ on:
       - 'tests/test_shared_gateway_routes.py'
       - 'tests/test_reset_password_csrf.py'
       - 'tests/test_login_session_regression.py'
+      - 'tests/test_profile_apps.py'
       - '.github/workflows/application-gateway.yml'
   workflow_dispatch:
 
@@ -44,6 +46,7 @@ jobs:
           PYTHONPATH=api python -m unittest discover -s tests -p test_shared_gateway_routes.py -v
           python -m unittest discover -s tests -p test_reset_password_csrf.py -v
           python -m unittest discover -s tests -p test_login_session_regression.py -v
+          PYTHONPATH=api python -m unittest discover -s tests -p test_profile_apps.py -v
           PYTHONPATH=api python -m unittest discover -s tests -p test_user_application_access.py -v
       - name: Render fixed-site Caddy gateway
         run: |
