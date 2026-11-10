@@ -163,7 +163,7 @@ SQL
 }
 
 save_app_target() {
-    local app_id="$1" public_url internal_url network count
+    local app_id="$1" app_name="${2:-}" public_url internal_url network count
     read -r -p "Nyilvános URL (HTTPS, pl. https://dashboard.code.hu): " public_url || die "megszakítva."
     valid_http_url "$public_url" && [[ "$public_url" == https://* ]] || die "érvénytelen HTTPS URL."
     read -r -p "Belső cél-URL (HTTP, pl. http://dashboard:8000): " internal_url || die "megszakítva."
@@ -176,8 +176,11 @@ SQL
 )" || die "URL-ütközés ellenőrzése sikertelen."
     [[ "$count" == 0 ]] || die "ez a nyilvános URL már foglalt."
     confirm "Elmented az alkalmazás elérhetőségét?" || { info "Megszakítva."; return; }
-    sql -v "v_app=$app_id" -v "v_public=$public_url" -v "v_internal=$internal_url" -v "v_net=$network" <<'SQL'
+    sql -v "v_app=$app_id" -v "v_name=$app_name" -v "v_public=$public_url" -v "v_internal=$internal_url" -v "v_net=$network" <<'SQL'
 BEGIN;
+INSERT INTO applications (id, name)
+SELECT :'v_app', :'v_name' WHERE :'v_name' <> ''
+ON CONFLICT (id) DO NOTHING;
 INSERT INTO application_targets (application_id, public_url, upstream_origin, docker_network)
 VALUES (:'v_app', :'v_public', :'v_internal', NULLIF(:'v_net',''))
 ON CONFLICT (application_id) DO UPDATE
@@ -210,13 +213,7 @@ SQL
 )" || die "alkalmazás lekérdezése sikertelen."
     [[ "$count" == 0 ]] || die "ilyen alkalmazás már létezik."
     confirm "Létrehozod az alkalmazást: $app_id ($app_name)?" || { info "Megszakítva."; return; }
-    sql -v "v_app=$app_id" -v "v_name=$app_name" <<'SQL'
-BEGIN;
-INSERT INTO applications (id, name) VALUES (:'v_app', :'v_name');
-COMMIT;
-SELECT id, name FROM applications WHERE id = :'v_app';
-SQL
-    save_app_target "$app_id"
+    save_app_target "$app_id" "$app_name"
 }
 
 show_user_apps() {
