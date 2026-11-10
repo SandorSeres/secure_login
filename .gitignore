@@ -1,2 +1,5 @@
 .env
 
+# Operator-generated per-application gateway configuration
+/caddy/app-gateway-generated/*.caddy
+/compose.app-gateway.yaml
