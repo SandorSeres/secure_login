@@ -1,4 +1,4 @@
-"""Application-specific, single-use cross-host login and authorization.
+"""Application-scoped tickets and authorization on a shared application hostname.
 
 Only the static Caddy app-site configuration supplies the application ID.
 Each forwarded request rechecks the existing user_application_access grant.
@@ -24,7 +24,7 @@ from .models import ApplicationTarget, User, UserApplicationAccess
 router = APIRouter()
 _TICKET_TTL = 60
 _SESSION_TTL = 6 * 60 * 60
-_COOKIE = "__Host-secure-login-app"
+_COOKIE = "__Host-secure-login-app-"
 _signer = URLSafeTimedSerializer(settings.SECRET_KEY, salt="secure-login-app-gateway-v1")
 
 
@@ -46,7 +46,7 @@ def _ticket_key(ticket: str) -> str:
 def _site_matches(request: Request, target: ApplicationTarget) -> bool:
     # No trust in request-supplied Forwarded/X-Forwarded-Host.
     host = request.headers.get("host", "").lower()
-    return target.public_url == "https://" + host
+    return target.public_url == "https://" + host + "/" + target.application_id
 
 
 @router.get("/applications/{app_id}/launch")
@@ -105,9 +105,9 @@ def redeem(
     if db.get(User, user_id) is None or not _has_grant(db, user_id, app_id):
         raise HTTPException(status_code=403, detail="Application not permitted")
     value = _signer.dumps({"user_id": user_id, "app_id": app_id})
-    response = RedirectResponse("/", status_code=303)
+    response = RedirectResponse("/" + app_id + "/", status_code=303)
     response.set_cookie(
-        _COOKIE, value, max_age=_SESSION_TTL,
+        _COOKIE + app_id, value, max_age=_SESSION_TTL,
         secure=True, httponly=True, samesite="lax", path="/",
     )
     response.headers["Cache-Control"] = "no-store"
@@ -121,7 +121,7 @@ def authorize(request: Request, db: Session = Depends(get_db)):
     target = db.get(ApplicationTarget, app_id)
     if target is None or not _site_matches(request, target):
         raise HTTPException(status_code=403, detail="Application not permitted")
-    value = request.cookies.get(_COOKIE)
+    value = request.cookies.get(_COOKIE + app_id)
     if not value:
         raise HTTPException(status_code=401, detail="Application authentication required")
     try:
@@ -138,6 +138,6 @@ def authorize(request: Request, db: Session = Depends(get_db)):
     method = request.headers.get("x-forwarded-method", "").upper()
     upgrade = request.headers.get("x-original-upgrade", "").lower()
     if method in {"POST", "PUT", "PATCH", "DELETE"} or upgrade == "websocket":
-        if request.headers.get("origin") != target.public_url:
+        if request.headers.get("origin") != "https://" + request.headers.get("host", "").lower():
             raise HTTPException(status_code=403, detail="Application origin not permitted")
     return Response(status_code=204)
