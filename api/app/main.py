@@ -28,6 +28,7 @@ from .security import (
 )
 from .rate_limit import limiter, is_locked, record_failed_login, reset_fail
 from .deps import get_db, current_user
+from .profile_apps import applications_for_user
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -215,14 +216,15 @@ async def login(request: Request, db: SASession = Depends(get_db)):
 
 
 @app.get("/profile", response_class=HTMLResponse)
-async def profile(request: Request, user: User = Depends(current_user)):
+async def profile(request: Request, user: User = Depends(current_user), db: SASession = Depends(get_db)):
     # csrf = issue_csrf()
     csrf_token = request.cookies.get(settings.CSRF_COOKIE_NAME) or issue_csrf()
     html = templates.get_template("profile.html").render(
         title="Profil",
         username=user.username,
         csrf_token=csrf_token,
-        account_level=getattr(user, "account_level", "Free")
+        account_level=getattr(user, "account_level", "Free"),
+        applications=applications_for_user(db, user.id)
     )
     resp = HTMLResponse(html)
     set_csrf_cookie(resp, csrf_token, 3600)
