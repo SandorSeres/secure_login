@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS application_targets (
     application_id varchar(63) PRIMARY KEY REFERENCES applications(id) ON DELETE CASCADE,
     public_url varchar(253) NOT NULL UNIQUE,
     upstream_origin varchar(255) NOT NULL,
-    docker_network varchar(128)
+    docker_network varchar(128),
+    legacy_roots varchar(255)
 );
 SQL
 
@@ -69,7 +70,7 @@ SELECT CASE WHEN
     to_regclass('public.application_targets') IS NOT NULL AND
     (SELECT count(*) FROM information_schema.columns
       WHERE table_schema='public' AND table_name='application_targets'
-      AND column_name IN ('application_id','public_url','upstream_origin','docker_network')) = 4 AND
+      AND column_name IN ('application_id','public_url','upstream_origin','docker_network','legacy_roots')) = 5 AND
     (SELECT count(*) FROM information_schema.columns
       WHERE table_schema='public' AND table_name='user_application_access'
       AND column_name IN ('user_id','application_id')) = 2
@@ -95,11 +96,11 @@ list_apps() {
     info ""
     info "=== Alkalmazások és hozzárendelések száma ==="
     sql <<'SQL'
-SELECT a.id, a.name, t.public_url, t.upstream_origin, t.docker_network, count(g.user_id) AS users
+SELECT a.id, a.name, t.public_url, t.upstream_origin, t.docker_network, t.legacy_roots, count(g.user_id) AS users
 FROM applications AS a
 LEFT JOIN user_application_access AS g ON g.application_id = a.id
 LEFT JOIN application_targets AS t ON t.application_id = a.id
-GROUP BY a.id, a.name, t.public_url, t.upstream_origin, t.docker_network
+GROUP BY a.id, a.name, t.public_url, t.upstream_origin, t.docker_network, t.legacy_roots
 ORDER BY a.id;
 SQL
 }
@@ -157,19 +158,21 @@ SQL
 render_gateway() {
     command -v python3 >/dev/null || die "a konfiguráció generálásához python3 szükséges."
     sql -qAt -F '|' <<'SQL' | python3 scripts/render_app_gateway.py
-SELECT application_id, public_url, upstream_origin, COALESCE(docker_network, '')
+SELECT application_id, public_url, upstream_origin, COALESCE(docker_network, ''), COALESCE(legacy_roots, '')
 FROM application_targets ORDER BY application_id;
 SQL
 }
 
 save_app_target() {
-    local app_id="$1" app_name="${2:-}" public_url internal_url network count
-    read -r -p "Nyilvános URL (HTTPS, pl. https://dashboard.code.hu): " public_url || die "megszakítva."
-    valid_http_url "$public_url" && [[ "$public_url" == https://* && "$public_url" != *:*:* ]] || die "nyilvános HTTPS URL szükséges, külön port nélkül."
+    local app_id="$1" app_name="${2:-}" public_url internal_url network roots count
+    read -r -p "Nyilvános URL (pl. https://research.code.hu/ai-dashboard): " public_url || die "megszakítva."
+    [[ "$public_url" == "https://research.code.hu/$app_id" ]] || die "a nyilvános URL pontosan https://research.code.hu/$app_id legyen."
     read -r -p "Belső cél-URL (HTTP, pl. http://dashboard:8000): " internal_url || die "megszakítva."
     valid_http_url "$internal_url" && [[ "$internal_url" == http://* && "$internal_url" == *:*:* ]] || die "belső HTTP URL szükséges explicit porttal."
     [[ "$internal_url" != http://127.0.0.1:* && "$internal_url" != http://localhost:* ]] || die "a 127.0.0.1 a Caddy konténerét jelentené. Használj Docker-hálózati célcímet (AI-Dashboard: :8000)."
     read -r -p "Docker-hálózat (üres, ha nem szükséges): " network || die "megszakítva."
+    read -r -p "Régi gyökérútvonalak, vesszővel (AI-Dashboard: /api,/static,/assets,/ws): " roots || die "megszakítva."
+    [[ -z "$roots" || "$roots" =~ ^/[a-zA-Z0-9_-]+(,/[a-zA-Z0-9_-]+)*$ ]] || die "érvénytelen gyökérútvonal-lista."
     [[ -z "$network" || "$network" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$ ]] || die "érvénytelen hálózatnév."
     count="$(scalar -v "v_url=$public_url" -v "v_app=$app_id" <<'SQL'
 SELECT count(*) FROM application_targets WHERE public_url = :'v_url' AND application_id <> :'v_app';
@@ -177,19 +180,20 @@ SQL
 )" || die "URL-ütközés ellenőrzése sikertelen."
     [[ "$count" == 0 ]] || die "ez a nyilvános URL már foglalt."
     confirm "Elmented az alkalmazás elérhetőségét?" || { info "Megszakítva."; return; }
-    sql -v "v_app=$app_id" -v "v_name=$app_name" -v "v_public=$public_url" -v "v_internal=$internal_url" -v "v_net=$network" <<'SQL'
+    sql -v "v_app=$app_id" -v "v_name=$app_name" -v "v_public=$public_url" -v "v_internal=$internal_url" -v "v_net=$network" -v "v_roots=$roots" <<'SQL'
 BEGIN;
 INSERT INTO applications (id, name)
 SELECT :'v_app', :'v_name' WHERE :'v_name' <> ''
 ON CONFLICT (id) DO NOTHING;
-INSERT INTO application_targets (application_id, public_url, upstream_origin, docker_network)
-VALUES (:'v_app', :'v_public', :'v_internal', NULLIF(:'v_net',''))
+INSERT INTO application_targets (application_id, public_url, upstream_origin, docker_network, legacy_roots)
+VALUES (:'v_app', :'v_public', :'v_internal', NULLIF(:'v_net',''), NULLIF(:'v_roots',''))
 ON CONFLICT (application_id) DO UPDATE
 SET public_url = EXCLUDED.public_url,
     upstream_origin = EXCLUDED.upstream_origin,
-    docker_network = EXCLUDED.docker_network;
+    docker_network = EXCLUDED.docker_network,
+    legacy_roots = EXCLUDED.legacy_roots;
 COMMIT;
-SELECT application_id, public_url, upstream_origin, docker_network
+SELECT application_id, public_url, upstream_origin, docker_network, legacy_roots
 FROM application_targets WHERE application_id = :'v_app';
 SQL
     render_gateway
