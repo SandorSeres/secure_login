@@ -164,6 +164,11 @@ SQL
 
 save_app_target() {
     local app_id="$1" app_name="${2:-}" public_url internal_url network count
+    if [[ "$app_id" == ai-dashboard ]]; then
+        info "AI-Dashboard főalkalmazásként: https://research.code.hu"
+    else
+        info "További alkalmazásként: https://research.code.hu/apps/$app_id"
+    fi
     read -r -p "Nyilvános URL (főapp: https://research.code.hu; további: https://research.code.hu/apps/azonosito): " public_url || die "megszakítva."
     [[ "$public_url" == "https://research.code.hu" || "$public_url" == "https://research.code.hu/apps/$app_id" ]] || die "csak https://research.code.hu vagy https://research.code.hu/apps/$app_id engedélyezett."
     read -r -p "Belső cél-URL (HTTP, pl. http://dashboard:8000): " internal_url || die "megszakítva."
