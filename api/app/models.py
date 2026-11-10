@@ -57,4 +57,4 @@ class ApplicationTarget(Base):
         ForeignKey("applications.id", ondelete="CASCADE"), primary_key=True
     )
     upstream_origin: Mapped[str] = mapped_column(String(255), nullable=False)
-    public_host: Mapped[str] = mapped_column(String(253), nullable=False, unique=True)
+    public_url: Mapped[str] = mapped_column(String(253), nullable=False, unique=True)
