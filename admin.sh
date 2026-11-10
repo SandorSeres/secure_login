@@ -145,6 +145,14 @@ SQL
 }
 
 # Application URL metadata is additive: it does not rewrite grants or proxy routes.
+render_gateway() {
+    command -v python3 >/dev/null || die "a gateway konfigurációjához python3 szükséges."
+    sql -qAt -F '|' <<'SQL' | python3 scripts/render_app_gateway.py
+SELECT application_id, public_url, upstream_origin, COALESCE(docker_network, '')
+FROM application_targets ORDER BY application_id;
+SQL
+}
+
 save_app_target() {
     local app_id="$1" public_url internal_url network count
     read -r -p "Nyilvános alkalmazás-URL (HTTPS): " public_url || die "megszakítva."
@@ -176,7 +184,8 @@ COMMIT;
 SELECT application_id, public_url, upstream_origin, docker_network FROM application_targets
 WHERE application_id = :'v_app';
 SQL
-    info "URL elmentve. A proxy útvonalakat külön aktiválni kell."
+    render_gateway
+    info "URL elmentve, Caddy-konfiguráció előállítva. Az aktiválás külön lépés."
 }
 
 create_app() {
