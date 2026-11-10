@@ -7,6 +7,8 @@ on:
       - 'scripts/render_app_gateway.py'
       - 'api/app/models.py'
       - '.github/workflows/admin-cli.yml'
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:

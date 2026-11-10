@@ -7,6 +7,8 @@ on:
       - 'caddy/Caddyfile'
       - 'CADDY_SETUP.md'
       - '.github/workflows/caddy-proxy.yml'
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:

@@ -36,6 +36,8 @@ on:
       - 'docs/APP_GATEWAY.md'
       - 'USER_APPLICATION_MODEL.md'
       - '.github/workflows/application-gateway.yml'
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
