@@ -165,9 +165,10 @@ SQL
 save_app_target() {
     local app_id="$1" app_name="${2:-}" public_url internal_url network count
     read -r -p "Nyilvános URL (HTTPS, pl. https://dashboard.code.hu): " public_url || die "megszakítva."
-    valid_http_url "$public_url" && [[ "$public_url" == https://* ]] || die "érvénytelen HTTPS URL."
+    valid_http_url "$public_url" && [[ "$public_url" == https://* && "$public_url" != *:*:* ]] || die "nyilvános HTTPS URL szükséges, külön port nélkül."
     read -r -p "Belső cél-URL (HTTP, pl. http://dashboard:8000): " internal_url || die "megszakítva."
-    valid_http_url "$internal_url" && [[ "$internal_url" == http://* ]] || die "érvénytelen HTTP belső URL."
+    valid_http_url "$internal_url" && [[ "$internal_url" == http://* && "$internal_url" == *:*:* ]] || die "belső HTTP URL szükséges explicit porttal."
+    [[ "$internal_url" != http://127.0.0.1:* && "$internal_url" != http://localhost:* ]] || die "a 127.0.0.1 a Caddy konténerét jelentené. Használj Docker-hálózati célcímet (AI-Dashboard: :8000)."
     read -r -p "Docker-hálózat (üres, ha nem szükséges): " network || die "megszakítva."
     [[ -z "$network" || "$network" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$ ]] || die "érvénytelen hálózatnév."
     count="$(scalar -v "v_url=$public_url" -v "v_app=$app_id" <<'SQL'
