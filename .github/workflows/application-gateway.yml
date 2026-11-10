@@ -40,12 +40,12 @@ jobs:
           PYTHONPATH=api python -m unittest discover -s tests -p test_user_application_access.py -v
       - name: Render fixed-site Caddy gateway
         run: |
-          printf 'dashboard|https://research.code.hu/dashboard|http://dashboard:8000|example_dashboard_net|/api,/static,/assets,/ws\n' \
+          printf 'dashboard|https://research.code.hu|http://dashboard:8000|example_dashboard_net\n' \
             | python scripts/render_app_gateway.py
           grep -q 'forward_auth' caddy/app-gateway-generated/research-gateway.caddy
           grep -q 'external: true' compose.app-gateway.yaml
-          grep -q 'handle /dashboard/\\*' caddy/app-gateway-generated/research-gateway.caddy
-          grep -q 'handle /api/\\*' caddy/app-gateway-generated/research-gateway.caddy
+          grep -q 'handle /_secure-login/redeem' caddy/app-gateway-generated/research-gateway.caddy
+          grep -q 'reverse_proxy http://dashboard:8000' caddy/app-gateway-generated/research-gateway.caddy
           PG_USER=ci PG_PASSWORD=ci PG_DB=ci SECRET_KEY=ci CSRF_KEY=ci \
             CADDY_DOMAIN=auth.example.com ACME_EMAIL=ci@example.com \
             APP_HOST=https://auth.example.com \
