@@ -30,6 +30,10 @@ from .deps import get_db, current_user
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
+# Additive, opt-in application gateway endpoints only.
+from .application_access import router as application_access_router
+app.include_router(application_access_router)
+
 # Statikus fájlok
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
