@@ -168,6 +168,42 @@ HTTPS állítja be (80 → 443 redirect).
 
 ---
 
+## 🔗 Alkalmazások (N:M jogosultság, gateway)
+
+A bejelentkezés után a profil oldalon minden felhasználó csak a neki
+hozzárendelt alkalmazásokat látja, és a **Megnyitás** gomb az alkalmazás
+saját címére visz. Két elrendezés lehetséges:
+
+- `https://ai.code.hu` — bejelentkezés, fiók, profil.
+- `https://research.code.hu` — a **gyökéralkalmazás** (jelenleg AI-Dashboard).
+- `https://research.code.hu/apps/<alkalmazás>` — további alkalmazások a közös
+  host alatt.
+- `https://<saját-dns-név>` — alkalmazás saját hostnéven (jelenleg Open WebUI a
+  `https://openwebui.code.hu` címen). A Caddy minden ilyen névhez külön
+  tanúsítványt szerez, ezért a DNS-rekordnak a felvétel előtt már erre a gépre
+  kell mutatnia.
+
+A jogosultságot minden kérésnél a Secure Login ellenőrzi (N:M tábla), nem a
+böngészőre van bízva. Részletek: `docs/APP_GATEWAY.md`, adminisztráció:
+`bash admin.sh` (4 felvétel, 5 hozzárendelés, 6 visszavonás, 8 cím módosítása).
+
+⚠️ Az `/apps/<azonosito>` alá csak olyan alkalmazás tehető, amelyik a generált
+linkjeiben, assetjeiben és WebSocket URL-jében is kiírja ezt a prefixet. Aki
+ezt nem tudja (ilyen az Open WebUI kész SvelteKit csomagja), annak saját
+hostnevet kell adni — különben a böngésző a prefix nélküli útvonalakat a
+gyökéralkalmazásnak kéri, és a képernyő fekete marad. Lásd `docs/APP_GATEWAY.md`
+és `docs/OPENWEBUI.md`.
+
+Egy alkalmazás saját hostnévre költöztetése: `bash admin.sh` → 8 (cím
+módosítása), majd a generált konfiguráció aktiválása:
+
+```bash
+docker compose -f docker-compose.yaml -f compose.app-gateway.yaml \
+  up -d --no-deps --force-recreate caddy
+```
+
+---
+
 ## 🛡️ Fontos megjegyzések
 
 - A jelszavak soha nem kerülnek tárolásra tiszta formában.

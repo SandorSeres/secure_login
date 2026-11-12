@@ -74,13 +74,25 @@ jobs:
           printf '%s\n' \
             'dashboard|https://research.code.hu|http://dashboard:8000|example_dashboard_net' \
             'research|https://research.code.hu/apps/research|http://research:8205|example_research_net' \
+            'openwebui|https://openwebui.code.hu|http://openwebui:8080|example_openwebui_net' \
             | python scripts/render_app_gateway.py
-          grep -q 'forward_auth' caddy/app-gateway-generated/research-gateway.caddy
+          shared=caddy/app-gateway-generated/app-research.code.hu.caddy
+          dedicated=caddy/app-gateway-generated/app-openwebui.code.hu.caddy
+          grep -q 'forward_auth' "$shared"
           grep -q 'external: true' compose.app-gateway.yaml
-          grep -q 'handle /apps/research/\\*' caddy/app-gateway-generated/research-gateway.caddy
-          grep -q 'uri strip_prefix /apps/research' caddy/app-gateway-generated/research-gateway.caddy
-          grep -q 'handle /_secure-login/redeem' caddy/app-gateway-generated/research-gateway.caddy
-          grep -q 'reverse_proxy http://dashboard:8000' caddy/app-gateway-generated/research-gateway.caddy
+          grep -q 'handle /apps/research/\\*' "$shared"
+          grep -q 'uri strip_prefix /apps/research' "$shared"
+          grep -q 'handle /_secure-login/redeem' "$shared"
+          grep -q 'handle /apps/research/_secure-login/redeem' "$shared"
+          grep -q 'reverse_proxy http://dashboard:8000' "$shared"
+          # Its own hostname: root mount, one redeem path, no /apps/ namespace.
+          grep -q 'reverse_proxy http://openwebui:8080' "$dedicated"
+          grep -q 'handle /_secure-login/redeem' "$dedicated"
+          test "$(grep -c 'handle /_secure-login/redeem' "$dedicated")" = 1
+          grep -q 'X-Gateway-App openwebui' "$dedicated"
+          if grep -q '/apps/' "$dedicated"; then exit 1; fi
+          if grep -q 'strip_prefix' "$dedicated"; then exit 1; fi
+          if ls caddy/app-gateway-generated | grep -v '^app-.*\.caddy$'; then exit 1; fi
           PG_USER=ci PG_PASSWORD=ci PG_DB=ci SECRET_KEY=ci CSRF_KEY=ci \
             CADDY_DOMAIN=auth.example.com ACME_EMAIL=ci@example.com \
             APP_HOST=https://auth.example.com \

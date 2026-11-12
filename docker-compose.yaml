@@ -76,11 +76,16 @@ services:
       - ./caddy/app-gateway-generated:/etc/caddy/app-gateway-generated:ro
       - caddy_data:/data
       - caddy_config:/config
-    networks: [secure_net]
+    networks:
+      - secure_net
+      - research_gateway
     restart: unless-stopped
 
 networks:
   secure_net:
+  research_gateway:
+    external: true
+    name: evidence-research_gateway
 
 volumes:
   pgdata:

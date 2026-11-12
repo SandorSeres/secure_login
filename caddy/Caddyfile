@@ -1,5 +1,11 @@
 {
     email {$ACME_EMAIL}
+    # HTTP/3 reaches every site through automatic HTTPS, so it is turned off
+    # per listener. "servers" without an address would be a global option and
+    # would also disable HTTP/2, which the dashboard /ws relies on.
+    servers :443 {
+        protocols h1 h2
+    }
 }
 
 {$CADDY_DOMAIN} {
@@ -16,5 +22,6 @@
     reverse_proxy api:8000
 }
 
-# Optional, individually authorized app sites.
-import /etc/caddy/app-gateway-generated/*.caddy
+# Optional, individually authorized app sites. Never a bare
+# "<hostname>.caddy": Caddy treats that filename as a placeholder source.
+import /etc/caddy/app-gateway-generated/app-*.caddy

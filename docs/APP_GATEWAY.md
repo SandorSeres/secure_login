@@ -1,18 +1,27 @@
-# Secure Login app gateway — one research.code.hu hostname
+# Secure Login app gateway
 
 ## Routing contract
 
 The historical domain separation is retained:
 
 - `https://ai.code.hu` — Secure Login authentication and user accounts.
-- `https://research.code.hu/` — the **single root application**, currently AI-Dashboard.
-- `https://research.code.hu/apps/<app-id>/` — all other applications.
+- `https://research.code.hu/` — the **root application of the shared host**,
+  currently AI-Dashboard.
+- `https://research.code.hu/apps/<app-id>/` — further applications mounted
+  under a prefix on that shared host.
+- `https://<a name of its own>` — an application that cannot be mounted under a
+  prefix. Its hostname is its own Caddy site, and it is that site's root.
 - Caddy routes to explicitly registered Docker service targets and calls Secure
   Login to enforce the existing N:M grant **before each request**.
 
-There is **one DNS record** for `research.code.hu`, not one per application.
-The current `ai.code.hu` Caddy site, existing login logic and the
+The shared host needs **one DNS record**, not one per application; an
+application that takes a hostname of its own adds exactly one record of its
+own. The current `ai.code.hu` Caddy site, existing login logic and the
 `127.0.0.1:8380` host-only AI-Dashboard port remain unchanged.
+
+The registry, not the layout, is the description the gateway and the API both
+read: a row's `public_url` decides which site an application belongs to and
+whether its mount prefix is empty or `/apps/<app-id>`.
 
 ## Admin menu
 
@@ -48,8 +57,46 @@ For another app, e.g. `korrupcio-kutatas`, the external address must be:
 https://research.code.hu/apps/korrupcio-kutatas
 ```
 
-Only one app may own the public root URL. A second root registration is
-rejected by the catalog's unique constraint and gateway validation.
+### What a prefixed application must do
+
+Only one application may own the host root, so everything else lives under
+`/apps/<app-id>/`. That prefix is the application's mount point and it belongs
+to that application alone: no route on this host maps a root-level path into an
+`/apps/` application, because another application's `/api/...` must never be
+read as the root portal's.
+
+The route therefore strips the prefix before the upstream, so the application
+sees its own root and its internal routes work unmodified. The consequence is
+on the page the application sends: any URL written into it without the prefix
+is a request for someone else's namespace, and the gateway cannot honestly
+serve it. So a prefixed application must emit `/apps/<app-id>/...` in every
+link, asset, API call and WebSocket URL it generates.
+
+Frameworks that build those URLs from a configured base path support this
+directly. An application that cannot be told its own mount point cannot be
+mounted under a prefix; give it a hostname of its own (its own DNS record and a
+Caddy site) rather than a prefix, and register that address in menu **8**.
+`docs/OPENWEBUI.md` is that migration worked through end to end.
+
+On its own hostname an application is that site's root, so nothing is stripped
+or added and its root-absolute URLs are correct as they are. The hostname has
+to resolve to this machine before it is registered, because Caddy gets a
+certificate per hostname. The address is stored lowercase with no path, port or
+query: a site *is* an application root. Two applications may not name the same
+hostname, and a hostname may not host both a root and a prefix.
+
+Every site becomes its own generated file in `caddy/app-gateway-generated/`,
+always named `app-<hostname>.caddy`. A file named exactly `<hostname>.caddy`
+would be a Caddyfile placeholder source, so that name is never used.
+
+The bare `/apps/<app-id>` is rewritten to the slash form inside the authorized
+route instead of redirected, because a redirect would leave the route before
+the browser holds an application cookie and land on `401` with no way back.
+
+Only one app may own a given host root. A second root registration on the same
+hostname is rejected by the catalog's unique constraint and gateway validation;
+two root applications are fine as long as they name different hostnames, which
+is exactly how a dedicated host joins the layout.
 
 ## Why the root portal matters
 
@@ -140,6 +187,19 @@ configured public addresses. A header that disagrees with that address
 resolves to nothing, so neither a client nor one application's backend
 can have this host mint another application's cookie.
 
+Its route passes the `/apps/<app-id>` prefix through rather than stripping
+it, because the prefix is the address that names the application. The API
+mounts redeem at `/_secure-login/redeem` for a root application and at
+`/apps/{app_id}/_secure-login/redeem` for a prefixed one; the two forms
+resolve to different applications and must stay registered side by side. An
+application on a hostname of its own uses the first form on its own host, so
+its site carries exactly one redeem block and no `/apps/*` namespace.
+
+Comparison with the registry is case-folded on both sides: `Host` is lowered,
+and the hostname of a configured `public_url` is lowered too, because a
+hostname is case-insensitive while a Caddy site block is not. A row naming a
+userinfo, port, path fragment or query never matches a `Host` value.
+
 ## WebSocket and browser writes
 
 `forward_auth` copies the client's `Upgrade` and `Connection` headers into
@@ -159,7 +219,8 @@ Compose network overlay. It does **not** touch running containers.
 
 Before activating on the Spark:
 1. Back up Secure Login PostgreSQL data and configuration.
-2. Check external DNS and HTTPS for `research.code.hu`.
+2. Check external DNS and HTTPS for `research.code.hu`, and for every
+   dedicated application hostname before it is registered.
 3. Validate generated Caddy and Compose configuration.
 4. Verify that Caddy can join the existing AI-Dashboard Docker network.
 5. Recreate **only** the Secure Login API and Caddy with the generated overlay.

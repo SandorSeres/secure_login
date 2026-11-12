@@ -171,13 +171,53 @@ SQL
 
 save_app_target() {
     local app_id="$1" app_name="${2:-}" public_url internal_url network count
+    # Exactly the two layouts the generator understands: on the shared host an
+    # app is the root portal or /apps/<app>; or it gets a hostname of its own
+    # and becomes that host's root.
+    local gateway_host="${APP_GATEWAY_HOST:-research.code.hu}"
+    local shared_root="https://${gateway_host}"
+    local shared_app="https://${gateway_host}/apps/${app_id}"
+    # A predictable host-specific name for apps without their own DNS record.
+    local expected="https://${gateway_host}.${app_id}"
     if [[ "$app_id" == ai-dashboard ]]; then
-        info "AI-Dashboard főalkalmazásként: https://research.code.hu"
+        info "Főalkalmazásként a közös host gyökerében: $shared_root"
     else
-        info "További alkalmazásként: https://research.code.hu/apps/$app_id"
+        info "További alkalmazásként: $shared_app"
     fi
-    read -r -p "Nyilvános URL (főapp: https://research.code.hu; további: https://research.code.hu/apps/azonosito): " public_url || die "megszakítva."
-    [[ "$public_url" == "https://research.code.hu" || "$public_url" == "https://research.code.hu/apps/$app_id" ]] || die "csak https://research.code.hu vagy https://research.code.hu/apps/$app_id engedélyezett."
+    info "Vagy saját hostnéven: $expected (vagy bármilyen DNS-név, ami ide mutat)"
+    read -r -p "Nyilvános URL (főapp: $shared_root; további: $shared_app; vagy saját hostname): " public_url || die "megszakitva."
+    if [[ "$public_url" == "$shared_root" || "$public_url" == "$shared_app" ]]; then
+        # The shared /apps/ prefix is a mount point, not a cosmetic path: only
+        # an app that writes it into its own links, assets and WebSocket URL
+        # survives there. Anything else needs a hostname of its own.
+        if [[ "$app_id" != ai-dashboard && "$public_url" == "$shared_app" ]]; then
+            info "Figyelem: /apps/… alá csak olyan alkalmazás való, amelyik a"
+            info "linkjeiben és assetjeiben is kiírja ezt a prefixet. Ha nem tudja,"
+            info "adj neki saját hostnevet, és itt azt a címet add meg."
+        fi
+    else
+        # Lowercase a dedicated hostname here: a hostname is case-insensitive
+        # while the generated Caddy site block is not. Do not fold case with
+        # tr '[:upper:]' '[:lower:]' over the whole script, though: psql
+        # reads ON_ERROR_STOP from the environment (see psql --help), so a
+        # lowercased on_error_stop would silently disable the guards that
+        # make every query in this file fail loudly.
+        public_url="$(python3 -c '
+import sys
+from urllib.parse import urlsplit
+value = sys.argv[1]
+parts = urlsplit(value)
+if (value.strip() != value or parts.scheme != "https" or not parts.hostname
+        or parts.port is not None or parts.path not in ("", "/")
+        or parts.username or parts.password or parts.query or parts.fragment):
+    raise SystemExit(1)
+sys.stdout.write("https://" + parts.hostname.lower())
+' "$public_url")" || die "saját hostname csak https://<dns-név> lehet, port és útvonal nélkül."
+        [[ "$public_url" != "$shared_root" && "$public_url" != "$shared_app" ]] \
+            || die "a közös host címét a főappnak vagy /apps/… alatt add meg."
+        info "Saját hostname: ${public_url#https://} — a Caddy tanúsítványt szerez hozzá,"
+        info "de a DNS-rekordnak már most erre a gépre kell mutatnia."
+    fi
     read -r -p "Belső cél-URL (HTTP, pl. http://dashboard:8000): " internal_url || die "megszakítva."
     valid_http_url "$internal_url" && [[ "$internal_url" == http://* && "$internal_url" == *:*:* ]] || die "belső HTTP URL szükséges explicit porttal."
     [[ "$internal_url" != http://127.0.0.1:* && "$internal_url" != http://localhost:* ]] || die "a 127.0.0.1 a Caddy konténerét jelentené. Használj Docker-hálózati célcímet (AI-Dashboard: :8000)."

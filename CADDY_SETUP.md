@@ -56,5 +56,15 @@ a publicly trusted Let's Encrypt certificate via this configuration.
   certificate DNS-01 plugin are added.
 - Do not run `docker compose down -v` against persistent deployment data.
 
+## HTTP/3 (QUIC) is disabled
+
+`servers :443 { protocols h1 h2 }` in the Caddyfile turns HTTP/3 off for the
+whole deployment. Caddy otherwise adds an HTTP/3 listener to every automatic
+HTTPS site. The research workspace upstream is uvicorn, which speaks plain
+HTTP/1.1 to Caddy; behind an HTTP/3 client connection the proxied response
+could not be completed and Firefox saw a repeated `network error` while the
+same request over HTTP/2 succeeded. HTTP/2 and HTTP/1.1 remain fully enabled,
+so WebSockets and streaming are unaffected.
+
 To test without a live domain, use a disposable environment; automatic
 public certificate issuance cannot be verified solely by parsing the config.

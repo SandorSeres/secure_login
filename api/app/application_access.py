@@ -9,7 +9,7 @@ import hashlib
 import json
 import re
 import secrets
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
@@ -97,12 +97,29 @@ def _host(request: Request) -> str:
     return request.headers.get("host", "").lower()
 
 
+def _public_host(target: ApplicationTarget) -> str:
+    """The lowercase hostname a registry row advertises, or "" if unusable.
+
+    A hostname is case-insensitive, so this has to be folded before it meets
+    the folded Host header. host, not netloc: Host carries no userinfo, and a
+    row containing one must never compare equal to a Host value.
+    """
+    try:
+        return urlsplit(target.public_url).hostname.lower()
+    except (AttributeError, ValueError):
+        return ""
+
+
 def _site_matches(request: Request, target: ApplicationTarget) -> bool:
     # No trust in request-supplied Forwarded/X-Forwarded-Host: this compares
     # the configured address with what the proxy itself received.
     host = _host(request)
-    return (target.public_url.rstrip("/") == "https://" + host
-            or target.public_url == "https://" + host + "/apps/" + target.application_id)
+    public_host = _public_host(target)
+    if not public_host:
+        return False
+    public_path = urlsplit(target.public_url).path.rstrip("/")
+    return (public_host == host and public_path == ""
+            or public_host == host and public_path == "/apps/" + target.application_id)
 
 
 def _request_app_by_address(request: Request, db: Session) -> str:
@@ -126,10 +143,10 @@ def _request_app_by_address(request: Request, db: Session) -> str:
     prefix = path.rstrip("/")
     if prefix and not prefix.startswith("/"):
         return ""
-    address = "https://" + host + prefix
     candidates = [target.application_id
                   for target in db.query(ApplicationTarget).all()
-                  if target.public_url.rstrip("/") == address]
+                  if _public_host(target) == host
+                  and urlsplit(target.public_url).path.rstrip("/") == prefix]
     # One row describes an address. More than one is a broken registry, and
     # guessing between two applications is not a safe tie-break.
     return candidates[0] if len(candidates) == 1 else ""
@@ -199,6 +216,7 @@ def launch(
 
 
 @router.get("/_secure-login/redeem")
+@router.get("/apps/{app_id}/_secure-login/redeem")
 def redeem(
     request: Request,
     ticket: str,
@@ -240,7 +258,8 @@ def redeem(
     })
     _bind_app_cookie(scope, app_id, cookie_id)
     response = RedirectResponse(
-        "/" if target.public_url.rstrip("/") == "https://" + _host(request)
+        "/" if _public_host(target) == _host(request)
+        and urlsplit(target.public_url).path.rstrip("/") == ""
         else "/apps/" + app_id + "/", status_code=303)
     response.set_cookie(
         app_cookie_name(app_id), value, max_age=_SESSION_TTL,
@@ -286,4 +305,5 @@ def authorize(request: Request, db: Session = Depends(get_db)):
     if method in {"POST", "PUT", "PATCH", "DELETE"} or upgrade == "websocket":
         if request.headers.get("origin") != "https://" + _host(request):
             raise HTTPException(status_code=403, detail="Application origin not permitted")
+
     return Response(status_code=204)

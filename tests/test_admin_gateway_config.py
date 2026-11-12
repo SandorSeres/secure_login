@@ -48,6 +48,15 @@ class GatewayConfigTests(unittest.TestCase):
                      "application_access.py", "rate_limit.py"):
             self.assertIn("redis_client", (ROOT / "api/app" / name).read_text(), name)
 
+    def test_redeem_routes_are_mounted_for_prefix_and_root(self):
+        # The site serves a prefixed app's redeem at /apps/<id>/..., and the
+        # root app's at the bare path. The API has to mount both, or the
+        # prefixed launch dies on the router with 404 before redeem runs.
+        from app.application_access import router
+        paths = {route.path for route in router.routes}
+        self.assertIn("/_secure-login/redeem", paths)
+        self.assertIn("/apps/{app_id}/_secure-login/redeem", paths)
+
     def test_readme_documents_the_real_install_steps(self):
         readme = (ROOT / "README.md").read_text()
         self.assertNotIn(".env.example", readme)
