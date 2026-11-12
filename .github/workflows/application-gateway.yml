@@ -19,6 +19,7 @@ on:
       - 'tests/test_profile_apps.py'
       - 'tests/test_admin_gateway_config.py'
       - 'tests/test_session_revocation.py'
+      - 'tests/test_session_cookie_encoding.py'
       - 'api/app/session_store.py'
       - 'api/app/session_cookie.py'
       - 'api/app/redis_client.py'
@@ -69,6 +70,7 @@ jobs:
           PYTHONPATH=api python -m unittest discover -s tests -p test_profile_apps.py -v
           PYTHONPATH=api python -m unittest discover -s tests -p test_user_application_access.py -v
           PYTHONPATH=api python -m unittest discover -s tests -p test_session_revocation.py -v
+          PYTHONPATH=api python -m unittest discover -s tests -p test_session_cookie_encoding.py -v
       - name: Render fixed-site Caddy gateway
         run: |
           printf '%s\n' \

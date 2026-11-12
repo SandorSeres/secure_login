@@ -22,19 +22,60 @@ _session_signer = TimestampSigner(settings.SECRET_KEY)
 CSRF_TTL = 60 * 60  # 1 hour
 SESSION_TTL = 60 * 60 * 6  # 6 hours
 
+HEXADECIMAL = "0123456789abcdef"
+
+def escape_username(username: str) -> str:
+    """Render a username as cookie-safe ASCII.
+
+    Starlette encodes a Set-Cookie header as latin-1, so a username holding a
+    character outside that range used to crash login. Every byte outside
+    printable ASCII, and both the backslash and the field separator, becomes a
+    \\xNN escape, which keeps the payload ASCII and fully reversible.
+    """
+    escaped = []
+    for character in username:
+        codepoint = ord(character)
+        if character in "\\|" or codepoint < 0x20 or codepoint > 0x7E:
+            escaped.append("".join("\\x%02x" % byte for byte in character.encode("utf-8")))
+        else:
+            escaped.append(character)
+    return "".join(escaped)
+
+def unescape_username(escaped: str) -> str:
+    """Reverse escape_username; a malformed escape passes through unchanged."""
+    raw = bytearray()
+    index = 0
+    length = len(escaped)
+    while index < length:
+        character = escaped[index]
+        if (character == "\\" and escaped[index + 1:index + 2] == "x"
+                and index + 4 <= length):
+            hexidecimal = escaped[index + 2:index + 4]
+            if len(hexidecimal) == 2 and all(d in HEXADECIMAL for d in hexidecimal):
+                raw.append(int(hexidecimal, 16))
+                index += 4
+                continue
+        raw.extend(character.encode("utf-8"))
+        index += 1
+    return raw.decode("utf-8", "replace")
+
 def create_session_value(username: str, jti: Optional[str] = None) -> str:
-    """Sign a (username, jti) pair. The jti is what makes a session revocable."""
-    payload = f"{username}|{jti or new_jti()}"
+    """Sign a (username, jti) pair. The jti is what makes a session revocable.
+
+    The signed payload is ASCII-only, so the cookie holding it is a valid
+    response header for any username a registration form accepted.
+    """
+    payload = f"{escape_username(username)}|{jti or new_jti()}"
     return _session_signer.sign(payload).decode()
 
 def verify_session_value(value: str) -> Optional[tuple[str, str]]:
     """Return (username, jti) for a structurally valid, unexpired cookie."""
     try:
         raw = _session_signer.unsign(value, max_age=SESSION_TTL).decode()
-        username, jti = raw.split("|", 1)
-        if not username or not jti:
+        escaped, separator, jti = raw.partition("|")
+        if not separator or not escaped or not jti:
             return None
-        return username, jti
+        return unescape_username(escaped), jti
     except (BadSignature, SignatureExpired):
         return None
 
