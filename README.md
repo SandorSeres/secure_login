@@ -202,6 +202,9 @@ docker compose -f docker-compose.yaml -f compose.app-gateway.yaml \
   up -d --no-deps --force-recreate caddy
 ```
 
+Új Evidence Research kutatás indítása és Secure Login alá kötése:
+`scripts/start-new-research.sh` — leírás: `docs/STARTING_RESEARCH.md`.
+
 ---
 
 ## 🛡️ Fontos megjegyzések
