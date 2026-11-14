@@ -6,15 +6,15 @@ kutatás mindig két dolog: egy önálló, Git-verziózott **Research Project** 
 `/Data/research/.evidence-research-harness/instances/<azonosito>` alatt. A projektek
 csak a két Docker image-et és a helyi LLM-szolgáltatást használják közösen.
 
-A kézi, lépésről lépésre útmutató: `/Data/containers/new_research.md`.
+A kézi, lépésről lépésre útmutató meg mardt: `/Data/containers/new_research.md`.
 A script ugyanazt a menetet automatizálja.
 
 ## Gyors kezdés
 
 ```bash
 cd /Data/containers
-cp scripts/research-goal-template.md ~/kutatas/cel.md      # töltsd ki a célt
-scripts/start-new-research.sh --goal ~/kutatas/cel.md --port 8207
+cp research-goal-template.md ~/kutatas/cel.md      # töltsd ki a célt
+./start-new-research.sh --goal ~/kutatas/cel.md --port 8207
 ```
 
 Port nélkül az indító az első szabad portot választja a `8201-8299`, majd
@@ -33,6 +33,36 @@ Mit csinál végig:
 
 Vegleges riportkent kiírja a projekt, a pldány, a Workspace URL-t, az elso azonositojat
 es a kezelési parancsot.
+
+## Web-search kulcsok
+
+A web-search gateway kulcsairól az indító magának gondoskodik, nem kell kézzel
+másolni. A `secrets/` fájljai mindig létrejönnek (mode 0600), és az üres fájl
+éppoly helyes állapot:
+
+| fájl | miről | ha üres |
+|------|-------|---------|
+| `serpapi_api_key` | SerpApi: Google és **Google Scholar** találatok | `scholar` és `serpapi` `not_configured` |
+| `exa_api_key` | Exa hosted MCP | Exa **anonymous** módban működik tovább |
+| `pubmed_api_key` | NCBI E-utilities (opcionális) | PubMed **anonymous**, 3 kereset/mp |
+
+A SerpApi kulcsot az indító felismeri egy már meglévő telepítésből, ebben a
+sorrendben: `RH_SERPAPI_KEY_SOURCE` (ha be van állítva), a framework
+`secrets/web-search/`, `/Data/containers/ai-dashboard-app/secrets/web-search/`,
+vagy bármelyik meglévő példány `secrets/serpapi_api_key` állománya. Nem üres
+példány-fájlt sosem ír felül, és a kulcs tartalmát sosem írja ki.
+
+Telepítés utólag, egy már létező példányhoz:
+
+```bash
+install -m 600 <forras/serpapi_api_key> \
+  /Data/research/.evidence-research-harness/instances/<azonosito>/secrets/serpapi_api_key
+bash /Data/containers/start-new-research.sh --id <azonosito> --restart-only
+```
+
+Ellenőrzés kulcs-kimutatás nélkül: a gateway `/health` végpontján a
+`serpapi-google-scholar.auth_mode` értéke `api_key` (működik) vagy
+`not_configured` (nincs kulcs).
 
 ## Kapcsolok
 
@@ -101,11 +131,11 @@ használatos.
 
 ```bash
 # indítás közben
-scripts/start-new-research.sh --goal ~/kutatas/cel.md --port 8207 --secure-login --activate
+./start-new-research.sh --goal ~/kutatas/cel.md --port 8207 --secure-login --activate
 
 # meglévő példány utólag, cél.md nélkül
-scripts/start-new-research.sh --id <azonosito> --bind-only            # csak generál
-scripts/start-new-research.sh --id <azonosito> --bind-only --activate # Caddy újratöltés
+./start-new-research.sh --id <azonosito> --bind-only            # csak generál
+./start-new-research.sh --id <azonosito> --bind-only --activate # Caddy újratöltés
 ```
 
 Az `--activate` csak a Caddy-t hozzza létre újra; az api, a db és a redis
@@ -131,7 +161,7 @@ legyen.
 ```bash
 RESEARCH_ROOT/.evidence-research-harness/instances/<azonosito>/manage.sh status
 ... manage.sh start | stop | restart | logs workspace | logs mutation-worker
-scripts/start-new-research.sh --id <azonosito> --restart-only
+./start-new-research.sh --id <azonosito> --restart-only
 ```
 
 A Workspace alapértelmezés szerint csak a Spark loopback címén figyel. Ne tedd ki
@@ -164,11 +194,10 @@ előző kör merge-e és a tiszta `main` után indíts. A read-only query kivét
 ## File-ok
 
 ```text
-scripts/start-new-research.sh               Az indító (ebbe a repóban)
-scripts/lib/research_goal_parse.py          A cél.md parser
-scripts/research-goal-template.md           Kitölthető sablon
-docs/STARTING_RESEARCH.md                   Ez az útmutató
-/Data/containers/new_research.md            Kézi, lépésenkénti útmutató
+/Data/containers/start-new-research.sh        Az indító
+/Data/containers/lib/research_goal_parse.py   A cél.md parser
+/Data/containers/research-goal-template.md    Kíztethető sablon
+/Data/containers/new_research.md              Kézi, lépésenkénti útmutató
 /Data/research/<azonosito>                    A Research Project (Git)
 /Data/research/.evidence-research-harness/instances/<azonosito>
     A példány .env (0600) és manage.sh állománya; nem része a Git repositorynak.

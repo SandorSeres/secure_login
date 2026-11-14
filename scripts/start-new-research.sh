@@ -36,6 +36,10 @@ JOB_RUNNER="${RH_JOB_RUNNER:-codex-cli}"
 GATEWAY_NETWORK="${RH_GATEWAY_NETWORK:-evidence-research_gateway}"
 RH_DOMAIN_SKILLS_DIR="${RH_DOMAIN_SKILLS_DIR:-$RESEARCH_ROOT/.evidence-research-harness/domain-skills}"
 RH_DOMAIN_SKILLS_ALLOWLIST="${RH_DOMAIN_SKILLS_ALLOWLIST:-none}"
+# Optional explicit source for the shared web-search provider key. When unset,
+# the launcher discovers a non-empty key from an already installed instance.
+RH_SERPAPI_KEY_SOURCE="${RH_SERPAPI_KEY_SOURCE:-}"
+RH_EXA_KEY_SOURCE="${RH_EXA_KEY_SOURCE:-}"
 
 RUNTIME_IMAGE="$IMAGE_PREFIX-runtime:$IMAGE_TAG"
 WORKER_IMAGE="$IMAGE_PREFIX-worker:$IMAGE_TAG"
@@ -167,6 +171,29 @@ strip_front_back() {
   s="${s#"${s%%[![:space:]]*}"}"
   s="${s%"${s##*[![:space:]]}"}"
   printf '%s' "$s"
+}
+
+# A shared web-search provider key discovery. Never prints key material.
+# Preference order: explicit env source, then any existing non-empty instance
+# secret, then the ai-dashboard gateway secret when it is readable. An empty
+# file remains a valid state: Scholar then reports not_configured and PubMed
+# stays anonymous.
+discover_provider_key() {
+  local name="$1" explicit candidate
+  explicit="$(printf '%s' "${!2:-}")"
+  if [[ -n "$explicit" ]]; then
+    [[ -s "$explicit" ]] && { printf '%s' "$explicit"; return 0; }
+    return 1
+  fi
+  for candidate in "$FRAMEWORK_SOURCE"/secrets/web-search/"$name" \
+                   /Data/containers/ai-dashboard-app/secrets/web-search/"$name" \
+                   "$RESEARCH_ROOT/.evidence-research-harness/instances/"*/secrets/"$name"; do
+    [[ -f "$candidate" && -s "$candidate" ]] || continue
+    head -c 1 "$candidate" >/dev/null 2>&1 || continue
+    printf '%s' "$candidate"
+    return 0
+  done
+  return 1
 }
 
 port_is_listening() {
@@ -575,6 +602,7 @@ DRY-RUN — a következők történnének:
   3. $INSTALLER_ROOT/install.sh --offline --instance $RESEARCH_ID \\
        --install-dir $INSTALL_DIR --project-dir $PROJECT_DIR --ui-port <szabad port> --no-start
   4. compose overlay: danger-full-access + web-search gateway + secret fájlok
+     (a SerpApi kulcsot meglévő telepítésből veszi át, csöndben)
   5. docker compose -p $RESEARCH_ID up -d
   6. rh job create --source-mode web + QUEUED$([[ $NO_JOB -eq 1 ]] && printf ' (kihagyva: --no-job)')
 Kezelés: $INSTALL_DIR/manage.sh status
@@ -689,8 +717,29 @@ deploy_compose_overlay() {
 
   mkdir -p "$dir/query-exchange" "$dir/secrets"
   chmod 700 "$dir/query-exchange" "$dir/secrets"
-  for secret in exa_api_key serpapi_api_key; do
-    [[ -f "$dir/secrets/$secret" ]] || (umask 177 && : >"$dir/secrets/$secret")
+
+  # A gateway kulcsai always provision on creation. A shared SerpApi key is
+  # inherited from an existing installation so every new Research Workspace gets
+  # Google and Google Scholar without any manual copy. Exa has no key on this
+  # host and stays empty, which means anonymous access. An existing non-empty
+  # per-instance file is never overwritten.
+  local secret source
+  for secret in exa_api_key serpapi_api_key pubmed_api_key; do
+    if [[ -f "$dir/secrets/$secret" && ! -s "$dir/secrets/$secret" ]]; then
+      case "$secret" in
+        serpapi_api_key) source="$(discover_provider_key serpapi_api_key RH_SERPAPI_KEY_SOURCE || true)" ;;
+        exa_api_key) source="$(discover_provider_key exa_api_key RH_EXA_KEY_SOURCE || true)" ;;
+        *) source="" ;;
+      esac
+      if [[ -n "$source" ]]; then
+        (umask 177 && cat "$source" >"$dir/secrets/$secret") &&
+          log "Web-search key átvéve: $secret" ||
+          log "Web-search key átvétele sikertelen: $secret — üres marad"
+      fi
+    elif [[ ! -e "$dir/secrets/$secret" ]]; then
+      (umask 177 && : >"$dir/secrets/$secret")
+    fi
+    chmod 600 "$dir/secrets/$secret"
   done
 
   set_env_key "$dir" RH_QUERY_EXCHANGE_DIR "$dir/query-exchange"
